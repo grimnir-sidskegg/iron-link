@@ -145,6 +145,17 @@ func TestManagerReactivationHonoursActivatedNode(t *testing.T) {
 func TestManagerLastSessionRestore(t *testing.T) {
 	m := fixtureManager(t)
 
+	// restore-on-start defaults OFF on Windows (store.defaultRestoreOnStart);
+	// enable it explicitly so this test exercises the restore path on every OS.
+	s, err := m.store.LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.RestoreOnStart = true
+	if err := m.store.SaveSettings(s); err != nil {
+		t.Fatal(err)
+	}
+
 	// Simulate a previous run's record, then a daemon start.
 	profile, node := "main", "node-a"
 	if err := m.store.SaveLastSession(api.PersistedEntry{Profile: &profile, Node: &node}); err != nil {
