@@ -1,0 +1,1 @@
+{"command": "upsert_routing", "routing_config": {"id": "r1", "name": "basic", "rule_sets": [], "rules": [], "default_target": "DefaultProxy"}}

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=iron-link
+GenericName=Proxy/VPN client
+Comment=Proxy/VPN orchestrator with embedded sing-box + xray
+Exec=iron-link
+Icon=iron-link
+Terminal=false
+Categories=Network;
+Keywords=vpn;proxy;sing-box;xray;dpi;
+StartupNotify=true
+# Must match the GTK app id (linux/CMakeLists.txt APPLICATION_ID) so the shell
+# associates the running window with this launcher.
+StartupWMClass=dev.ironlink.iron_link_flutter

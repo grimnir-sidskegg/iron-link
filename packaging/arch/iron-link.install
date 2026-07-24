@@ -1,0 +1,59 @@
+_group=iron-link
+_envfile=/etc/iron-link/config.env
+
+# The human who triggered the install: the root service serves THEIR ~/.config
+# and they must join the socket group. SUDO_USER is set when the package is
+# installed via `sudo pacman` / `makepkg -si`.
+_desktop_user() {
+  local u="${SUDO_USER:-}"
+  [ -n "$u" ] && [ "$u" != root ] && { printf '%s' "$u"; return; }
+  printf ''
+}
+
+post_install() {
+  getent group "$_group" >/dev/null || groupadd -r "$_group"
+
+  local u home
+  u=$(_desktop_user)
+  if [ -n "$u" ]; then
+    gpasswd -a "$u" "$_group" >/dev/null 2>&1 || usermod -aG "$_group" "$u" || true
+    home=$(getent passwd "$u" | cut -d: -f6)
+    if [ -n "$home" ] && [ ! -e "$_envfile" ]; then
+      install -d /etc/iron-link
+      printf 'IRON_LINK_CONFIG_DIR=%s/.config/iron-link\n' "$home" > "$_envfile"
+    fi
+  fi
+
+  systemctl daemon-reload 2>/dev/null || true
+
+  cat <<EOF
+
+iron-link installed.
+
+  • Enable the background daemon (root service, auto-start at boot):
+        sudo systemctl enable --now iron-link
+  • Launch "iron-link" from your app menu — the GUI connects to the daemon
+    over /run/iron-link/iron-link.sock.
+  • You were added to the '$_group' group: log out/in (or run \`newgrp $_group\`)
+    for it to take effect, otherwise the GUI cannot reach the socket yet.
+  • The root daemon serves the user in $_envfile (IRON_LINK_CONFIG_DIR);
+    edit it if you installed for a different user.
+  • GNOME needs the AppIndicator extension for the tray; KDE/XFCE/Cinnamon/
+    MATE/waybar host it natively.
+EOF
+}
+
+post_upgrade() {
+  systemctl daemon-reload 2>/dev/null || true
+  echo "iron-link upgraded — apply with: sudo systemctl restart iron-link"
+}
+
+pre_remove() {
+  systemctl disable --now iron-link 2>/dev/null || true
+}
+
+post_remove() {
+  systemctl daemon-reload 2>/dev/null || true
+  echo "Left in place: group '$_group', $_envfile, and your profiles under"
+  echo "~/.config/iron-link. Remove them manually if no longer wanted."
+}

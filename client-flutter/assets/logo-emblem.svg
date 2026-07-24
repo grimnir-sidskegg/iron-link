@@ -1,0 +1,58 @@
+<!--
+  iron_link app emblem — two interlocking chain links ("iron link") on a dark
+  iron badge, rendered in brushed steel (silver, not tinted) so the mark reads
+  as forged iron and stays theme-neutral across every colour scheme.
+
+  Source of truth for the app/tray icon. The shipped rasters are generated FROM
+  this file: assets/logo-emblem.png (tray + in-app emblem), the macOS
+  AppIcon.appiconset/*.png set, and windows/.../app_icon.ico. Designed on a 512
+  grid; the mark reads down to ~16-22px (tray). To regenerate, rasterise this
+  SVG to those sizes (rsvg-convert / ImageMagick).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="36%" cy="28%" r="88%">
+      <stop offset="0%" stop-color="#212C3D"/>
+      <stop offset="55%" stop-color="#141A23"/>
+      <stop offset="100%" stop-color="#070A0E"/>
+    </radialGradient>
+    <!-- brushed steel: bright top-left highlight → mid steel → shadowed steel -->
+    <linearGradient id="link" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F4F7FA"/>
+      <stop offset="45%" stop-color="#CFD6DE"/>
+      <stop offset="100%" stop-color="#A2ABB6"/>
+    </linearGradient>
+    <!-- darker steel rim that gives each link its rounded, tubular edge -->
+    <linearGradient id="shade" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5B636E"/>
+      <stop offset="100%" stop-color="#3A4049"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#465260"/>
+      <stop offset="100%" stop-color="#0A0E13"/>
+    </linearGradient>
+    <radialGradient id="topglow" cx="38%" cy="22%" r="55%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- iron badge: rim bezel, radial face, top-left sheen -->
+  <circle cx="256" cy="256" r="250" fill="url(#rim)"/>
+  <circle cx="256" cy="256" r="237" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="237" fill="url(#topglow)"/>
+
+  <!-- two interlocking links; the darker `shade` underlay gives each a tube edge -->
+  <g transform="translate(256 256) rotate(45)">
+    <rect x="-176" y="-62" width="200" height="124" rx="62" fill="none" stroke="url(#shade)" stroke-width="44"/>
+    <rect x="-176" y="-62" width="200" height="124" rx="62" fill="none" stroke="url(#link)" stroke-width="34"/>
+    <rect x="-24" y="-62" width="200" height="124" rx="62" fill="none" stroke="url(#shade)" stroke-width="44"/>
+    <rect x="-24" y="-62" width="200" height="124" rx="62" fill="none" stroke="url(#link)" stroke-width="34"/>
+    <!-- weave: redraw the back link's cap over the front link at the lower crossing -->
+    <clipPath id="cross"><rect x="-30" y="6" width="60" height="80"/></clipPath>
+    <g clip-path="url(#cross)">
+      <rect x="-176" y="-62" width="200" height="124" rx="62" fill="none" stroke="url(#shade)" stroke-width="44"/>
+      <rect x="-176" y="-62" width="200" height="124" rx="62" fill="none" stroke="url(#link)" stroke-width="34"/>
+    </g>
+  </g>
+</svg>

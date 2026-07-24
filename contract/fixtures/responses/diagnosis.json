@@ -1,0 +1,1 @@
+{"status": "diagnosis", "diagnosis": {"node": "tokyo", "ok": false, "failed_stage": "tls", "stages": [{"stage": "tcp", "ok": true, "duration_ms": 23}, {"stage": "tls", "ok": false, "duration_ms": 1500, "error": "handshake timeout"}]}}

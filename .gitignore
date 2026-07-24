@@ -1,0 +1,23 @@
+# Runtime artifacts (a spawned core's cwd must never be the repo root)
+/cache.db
+*.db
+
+# Python bytecode (packaging scripts)
+__pycache__/
+*.pyc
+
+# Package build files
+packaging/arch/*.tar.zst
+packaging/arch/iron-link/
+packaging/arch/pkg/
+packaging/arch/src/
+
+# local agent guide — not published
+AGENTS.md
+
+# design docs — kept local, not published (README is the only public doc)
+/docs/
+CLAUDE.md
+
+# Claude Code local config — never published
+/.claude/

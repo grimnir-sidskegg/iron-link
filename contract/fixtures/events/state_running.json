@@ -1,0 +1,1 @@
+{"event": "state", "entries": [{"role": "Tun", "state": "running", "uptime_secs": 0}, {"role": "Proxy", "state": "running", "uptime_secs": 0}], "active": {"profile": "main", "node": "Grimnir [VLESS - tcp]", "routing": "basic", "tun": false}}

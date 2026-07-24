@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  iron-link daemon — macOS launchd LaunchDaemon (runs at boot, as root).
+
+  DRAFT — install.sh substitutes the __PLACEHOLDERS__ for the installing user
+  and copies this to /Library/LaunchDaemons/org.iron-link.daemon.plist, then
+  `launchctl load -w` it. Align the Label/filename with the app bundle id.
+
+  Unlike Linux, NO daemon change is needed: on macOS there is no
+  $XDG_RUNTIME_DIR, so a root daemon and the user's client both resolve the
+  control socket to <config-dir>/iron-link.sock, and the daemon chowns it to
+  the user (SUDO_UID/SUDO_GID below) — they rendezvous automatically. Root is
+  required for TUN (a kernel-assigned utunN) and system DNS.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.iron-link.daemon</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/iron-link-daemon</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>IRON_LINK_CONFIG_DIR</key>
+        <string>__CONFIG_DIR__</string>
+        <key>SUDO_UID</key>
+        <string>__UID__</string>
+        <key>SUDO_GID</key>
+        <string>__GID__</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>__CONFIG_DIR__/daemon.log</string>
+    <key>StandardErrorPath</key>
+    <string>__CONFIG_DIR__/daemon.log</string>
+</dict>
+</plist>

@@ -1,0 +1,1 @@
+{"status": "app_traffic", "apps": [{"path": "/usr/bin/firefox", "up": 524288, "down": 8388608, "by_route": {"direct": {"up": 32768, "down": 262144}, "proxy": {"up": 491520, "down": 8126464}}}, {"path": "/usr/lib/telegram/telegram", "up": 16384, "down": 131072, "by_route": {"proxy": {"up": 16384, "down": 131072}}}]}

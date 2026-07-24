@@ -1,0 +1,391 @@
+/// The Dart half of the cross-language wire contract, against
+/// `contract/fixtures/` — the same discipline as the Rust and Go suites:
+///
+/// - requests (`requests/`): this client EMITS them, so
+///   `toJson()` must equal the fixture EXACTLY as a JSON value (explicit
+///   nulls and omitted keys both matter);
+/// - responses + events: the daemon emits, this client must DECODE every
+///   one leniently;
+/// - coverage is enforced both ways: every fixture file must have a case
+///   and every case a fixture, so neither side drifts silently.
+library;
+
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:collection/collection.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:iron_link_flutter/src/wire/wire.dart';
+
+const fixturesRoot = '../contract/fixtures';
+
+Map<String, Object?> readFixture(String relative) {
+  final body = File('$fixturesRoot/$relative').readAsStringSync();
+  return jsonDecode(body) as Map<String, Object?>;
+}
+
+/// Request fixtures → the request that must emit them, byte-equal as JSON.
+final requestCases = <String, Request>{
+  // session verbs (shared fixtures emitted by the client)
+  'requests/activate_defaults.json': const ActivateRequest(),
+  'requests/activate_full.json': const ActivateRequest(
+      profile: 'home', node: 'tokyo', routing: 'split', tun: true),
+  'requests/status.json': const StatusRequest(),
+  'requests/stop_all.json': const StopRequest(),
+  'requests/stop_role.json': const StopRequest(role: CoreRole.tun),
+  'requests/subscribe.json': const SubscribeRequest(),
+  'requests/switch_node.json': const SwitchNodeRequest('osaka'),
+  'requests/test_latency_all.json': const TestLatencyRequest(),
+  'requests/test_latency_nodes.json':
+      const TestLatencyRequest(['tokyo', 'osaka']),
+  // store verbs + diagnose + settings (promoted to shared at P0)
+  'requests/add_node.json': const AddNodeRequest(
+      'vless://00000000-0000-0000-0000-000000000000@example.com:443'
+      '?security=reality&sni=cdn.example.com&pbk=KEY&fp=chrome&type=tcp'
+      '#Grimnir'),
+  'requests/add_subscription.json': const AddSubscriptionRequest(
+      'https://example.com/sub',
+      name: 'main',
+      allowInvalidCerts: true),
+  'requests/create_profile.json': const CreateProfileRequest('work'),
+  'requests/delete_profile.json': const DeleteProfileRequest('old'),
+  'requests/diagnose.json': const DiagnoseRequest('tokyo'),
+  'requests/traffic_apps.json': const TrafficAppsRequest(),
+  'requests/doctor.json': const DoctorRequest(),
+  'requests/doctor_nodes.json': const DoctorNodesRequest(),
+  'requests/network_report.json': const NetworkReportRequest(),
+  'requests/forwarding_check.json': const ForwardingCheckRequest(),
+  'requests/list_nodes.json': const ListNodesRequest(profile: 'main'),
+  'requests/list_profiles.json': const ListProfilesRequest(),
+  'requests/list_routing.json': const ListRoutingRequest(),
+  'requests/list_subscriptions.json': const ListSubscriptionsRequest(),
+  'requests/refresh_subscriptions_all.json':
+      const RefreshSubscriptionsRequest(),
+  'requests/refresh_subscriptions_one.json':
+      const RefreshSubscriptionsRequest(sub: 'main'),
+  'requests/remove_node.json': const RemoveNodeRequest('3f2a'),
+  'requests/remove_routing.json': const RemoveRoutingRequest('r1'),
+  'requests/remove_subscription.json': const RemoveSubscriptionRequest('main'),
+  'requests/update_subscription.json': const UpdateSubscriptionRequest(
+    'main',
+    name: 'Main (EU)',
+    url: 'https://example.com/sub2',
+    enabled: false,
+    allowInvalidCerts: true,
+    updateIntervalSec: 43200,
+  ),
+  'requests/select_node.json': const SelectNodeRequest('3f2a'),
+  'requests/select_routing.json': const SelectRoutingRequest('basic'),
+  'requests/get_routing.json': const GetRoutingRequest('r1'),
+  'requests/routing_schema.json': const RoutingSchemaRequest(),
+  'requests/set_active_profile.json': const SetActiveProfileRequest('main'),
+  'requests/set_node_prefs_clear.json': const SetNodePrefsRequest('3f2a'),
+  'requests/set_node_prefs_pin.json':
+      const SetNodePrefsRequest('3f2a', coreOverride: CoreType.xray),
+  'requests/upsert_routing.json': const UpsertRoutingRequest({
+    'id': 'r1',
+    'name': 'basic',
+    'rule_sets': <Object?>[],
+    'rules': <Object?>[],
+    'default_target': 'DefaultProxy',
+  }),
+  'requests/get_settings.json': const GetSettingsRequest(),
+  'requests/set_settings.json': SetSettingsRequest(Settings(
+    logLevel: 'warn',
+    ipVersion: 'v4',
+    dns: DnsSettings(
+        servers: [DnsServer(type: 'udp', address: '1.1.1.1')],
+        strategy: 'ipv4_only',
+        viaTunnel: true),
+    lanBypass: LanBypassSettings(
+        enabled: true, cidrs: ['10.0.0.0/8', '192.168.0.0/16']),
+    restoreOnStart: false,
+    subscriptionUserAgent: 'clash-verge/1.7',
+    socksPort: 1080,
+    tun: TunSettings(mtu: 9000, stack: 'system', strictRoute: false),
+    latencyProbe: ProbeSettings(
+        url: 'https://cp.cloudflare.com/generate_204', budgetSecs: 20),
+  )),
+};
+
+/// Response fixtures → assertions on the lenient decode.
+final responseCases = <String, void Function(Response)>{
+  'responses/activated.json': (r) {
+    r as ActivatedResponse;
+    expect(r.entries.map((e) => e.role), [CoreRole.tun, CoreRole.proxy]);
+    expect(r.entries.every((e) => e.isRunning), isTrue);
+  },
+  'responses/error.json': (r) {
+    expect((r as ErrorResponse).message, 'no such node: osaka');
+  },
+  'responses/idle.json': (r) => expect(r, isA<IdleResponse>()),
+  'responses/latencies.json': (r) {
+    r as LatenciesResponse;
+    expect(r.latencies, hasLength(2));
+    expect(r.latencies[0].latencyMs, 58);
+    expect(r.latencies[1].latencyMs, isNull);
+  },
+  'responses/ok.json': (r) => expect((r as OkResponse).message, 'removed'),
+  'responses/ok_add_node.json': (r) {
+    r as OkResponse;
+    expect(r.message, 'node added');
+    expect(r.node, 'node-3f2a');
+  },
+  'responses/running_full.json': (r) {
+    r as RunningResponse;
+    expect(r.entries, hasLength(2));
+    expect(r.entries[0].uptimeSecs, 42);
+    expect(r.active?.profile, 'main');
+    expect(r.active?.tun, isFalse);
+    expect(r.activeNodeLive, 'Grimnir [VLESS - tcp]');
+  },
+  'responses/running_no_context.json': (r) {
+    r as RunningResponse;
+    expect(r.entries, hasLength(1));
+    expect(r.active, isNull);
+    expect(r.activeNodeLive, isNull);
+  },
+  'responses/started.json': (r) {
+    r as StartedResponse;
+    expect(r.role, CoreRole.tun);
+  },
+  'responses/stopped_bare.json': (r) => expect(r, isA<StoppedResponse>()),
+  'responses/switched.json': (r) {
+    expect((r as SwitchedResponse).node, 'osaka');
+  },
+  'responses/diagnosis.json': (r) {
+    final d = (r as DiagnosisResponse).diagnosis!;
+    expect(d.node, 'tokyo');
+    expect(d.ok, isFalse);
+    expect(d.failedStage, 'tls');
+    expect(d.stages, hasLength(2));
+    expect(d.stages[1].error, 'handshake timeout');
+  },
+  'responses/app_traffic.json': (r) {
+    final apps = (r as AppTrafficResponse).apps;
+    expect(apps, hasLength(2));
+    expect(apps[0].path, '/usr/bin/firefox');
+    expect(apps[0].up, 524288);
+    expect(apps[0].down, 8388608);
+    // firefox is split across proxy + direct; the totals == the sum.
+    expect(apps[0].byRoute.keys.toSet(), {'proxy', 'direct'});
+    expect(apps[0].byRoute['proxy']!.up, 491520);
+    expect(apps[0].byRoute['proxy']!.down, 8126464);
+    expect(apps[0].byRoute['direct']!.up, 32768);
+    expect(apps[0].byRoute['direct']!.down, 262144);
+    expect(apps[1].path, '/usr/lib/telegram/telegram');
+    // telegram is proxy-only.
+    expect(apps[1].byRoute.keys.toSet(), {'proxy'});
+    expect(apps[1].byRoute['proxy']!.up, 16384);
+  },
+  'responses/doctor_report.json': (r) {
+    final checks = (r as DoctorReportResponse).checks;
+    expect(checks, hasLength(2));
+    final internet = checks[0];
+    expect(internet.id, 'internet');
+    expect(internet.status, 'warn');
+    expect(internet.isWarn, isTrue);
+    expect(internet.details, hasLength(4));
+    expect(internet.remedy, isNotNull);
+    expect(internet.remedy!.dnsStrategy, 'prefer_ipv6');
+    final resolvers = checks[1];
+    expect(resolvers.id, 'resolvers');
+    expect(resolvers.status, 'warn');
+    expect(resolvers.remedy, isNotNull);
+    // The resolver remedy promotes a reachable upstream — a full server list.
+    expect(resolvers.remedy!.dnsStrategy, isNull);
+    expect(resolvers.remedy!.dnsServers, isNotNull);
+    expect(resolvers.remedy!.dnsServers!.map((s) => s.address),
+        ['1.1.1.1', '8.8.8.8']);
+    expect(resolvers.remedy!.dnsServers!.first.type, 'tls');
+  },
+  'responses/nodes.json': (r) {
+    final nodes = (r as NodesResponse).nodes;
+    expect(nodes, hasLength(2));
+    expect(nodes[0].coreOverride, CoreType.xray);
+    expect(nodes[0].active, isTrue);
+    expect(nodes[1].subId, isNull);
+    expect(nodes[1].transport, 'xhttp');
+    expect(nodes[0].eligibleCores, [CoreType.singBox, CoreType.xray]);
+    expect(nodes[1].eligibleCores, [CoreType.xray]);
+  },
+  'responses/routing_config.json': (r) {
+    final cfg = (r as RoutingConfigResponse).routingConfig;
+    expect(cfg['id'], 'r1');
+    expect(cfg['name'], 'basic');
+    expect(cfg['default_target'], 'Direct');
+    expect(cfg['rules'], hasLength(1));
+  },
+  'responses/routing_schema.json': (r) {
+    final s = (r as RoutingSchemaResponse).routingSchema;
+    expect(s.conditions, hasLength(33));
+    final byKey = {for (final c in s.conditions) c.key: c};
+    expect(byKey['domain']!.kind, 'strings');
+    expect(byKey['port']!.kind, 'ports');
+    expect(byKey['ip_is_private']!.kind, 'bool');
+    expect(byKey['user_id']!.kind, 'numbers');
+    expect(byKey['clash_mode']!.kind, 'string');
+    expect(byKey['process_name']!.supported, isTrue);
+    expect(byKey['package_name']!.supported, isFalse);
+    expect(s.targets, ['DefaultProxy', 'Direct', 'Block', 'Node']);
+    expect(s.ruleSetFormats, ['binary', 'source']);
+  },
+  'responses/profiles.json': (r) {
+    r as ProfilesResponse;
+    expect(r.profiles, ['main', 'work']);
+    expect(r.activeProfile, 'main');
+  },
+  'responses/refreshed.json': (r) {
+    final refreshed = (r as RefreshedResponse).refreshed;
+    expect(refreshed, hasLength(3));
+    expect(refreshed[1].skipped, isTrue);
+    expect(refreshed[2].error, 'fetch: status 502');
+  },
+  'responses/routing.json': (r) {
+    final routing = (r as RoutingResponse).routing;
+    expect(routing, hasLength(2));
+    expect(routing[0].ruleSets, 2);
+    expect(routing[0].active, isTrue);
+  },
+  'responses/subscriptions.json': (r) {
+    final subs = (r as SubscriptionsResponse).subscriptions;
+    expect(subs, hasLength(1));
+    expect(subs[0].lastUpdated, '2026-06-10T12:00:00Z');
+    expect(subs[0].nodeCount, 42);
+  },
+  'responses/settings.json': (r) {
+    final s = (r as SettingsResponse).settings;
+    expect(r.needsReactivation, isFalse);
+    expect(s.logLevel, 'info');
+    expect(s.ipVersion, 'both');
+    expect(s.dns.servers.single.type, 'tls');
+    expect(s.dns.strategy, 'prefer_ipv4');
+    expect(s.dns.viaTunnel, isFalse);
+    expect(s.lanBypass.cidrs, hasLength(3)); // link-local / ULA (RFC1918 moved to an immutable route rule)
+    expect(s.socksPort, 10808);
+    expect(s.tun.strictRoute, isTrue);
+    expect(s.latencyProbe.budgetSecs, 45);
+    // The document must survive an edit-and-resend round trip.
+    expect(const DeepCollectionEquality().equals(
+            Settings.fromJson(s.toJson()).toJson(), s.toJson()),
+        isTrue);
+  },
+  'responses/settings_needs_reactivation.json': (r) {
+    r as SettingsResponse;
+    expect(r.needsReactivation, isTrue);
+    expect(r.settings.socksPort, 1080);
+  },
+};
+
+/// Event fixtures → assertions on the lenient decode.
+final eventCases = <String, void Function(Event)>{
+  'events/log.json': (e) {
+    e as LogEvent;
+    expect(e.level, 'warning');
+    expect(e.message, 'outbound timeout');
+  },
+  'events/state_idle.json': (e) {
+    e as StateEvent;
+    expect(e.entries, isEmpty);
+    expect(e.active, isNull);
+    expect(e.isRunning, isFalse);
+  },
+  'events/state_running.json': (e) {
+    e as StateEvent;
+    expect(e.isRunning, isTrue);
+    expect(e.active?.node, 'Grimnir [VLESS - tcp]');
+  },
+  'events/traffic.json': (e) {
+    e as TrafficEvent;
+    expect(e.up, 4096);
+    expect(e.down, 1048576);
+  },
+  'events/traffic_zero.json': (e) {
+    e as TrafficEvent;
+    expect(e.up, 0);
+    expect(e.down, 0);
+  },
+  'events/core_error.json': (e) {
+    e as CoreErrorEvent;
+    expect(e.role, CoreRole.proxy);
+    expect(e.stage, 'start');
+  },
+  'events/subscription_updated.json': (e) {
+    e as SubscriptionUpdatedEvent;
+    expect(e.added, 3);
+    expect(e.total, 42);
+  },
+  'events/subscription_updated_zero.json': (e) {
+    e as SubscriptionUpdatedEvent;
+    expect(e.added, 0); // omitted zero counts default
+    expect(e.total, 42);
+  },
+};
+
+void main() {
+  const deepEq = DeepCollectionEquality();
+
+  group('requests emit exactly', () {
+    requestCases.forEach((fixture, request) {
+      test(fixture, () {
+        final expected = readFixture(fixture);
+        final actual = request.toJson();
+        expect(deepEq.equals(actual, expected), isTrue,
+            reason: 'emitted ${jsonEncode(actual)}\n'
+                'fixture ${jsonEncode(expected)}');
+        // Null-vs-omitted is part of the contract — deep equality alone
+        // would let {"role": null} pass for {}; pin the key sets too.
+        expect(actual.keys.toSet(), expected.keys.toSet());
+      });
+    });
+  });
+
+  group('responses decode leniently', () {
+    responseCases.forEach((fixture, check) {
+      test(fixture, () => check(Response.fromJson(readFixture(fixture))));
+    });
+  });
+
+  group('events decode leniently', () {
+    eventCases.forEach((fixture, check) {
+      test(fixture, () => check(Event.fromJson(readFixture(fixture))));
+    });
+  });
+
+  group('forward compatibility', () {
+    test('unknown response tag maps to UnknownResponse', () {
+      final r = Response.fromJson({'status': 'from_the_future', 'x': 1});
+      expect((r as UnknownResponse).status, 'from_the_future');
+    });
+    test('unknown event tag maps to UnknownEvent', () {
+      expect(Event.fromJson({'event': 'from_the_future'}), isA<UnknownEvent>());
+    });
+    test('unknown fields are ignored', () {
+      final r = Response.fromJson(
+          {'status': 'switched', 'node': 'osaka', 'novel_field': true});
+      expect((r as SwitchedResponse).node, 'osaka');
+    });
+  });
+
+  test('coverage: every fixture has a case and every case a fixture', () {
+    // listSync yields the platform separator (backslash on Windows); the
+    // case-table keys are POSIX-style, so normalize before comparing.
+    final prefix = '$fixturesRoot/';
+    final onDisk = Directory(fixturesRoot)
+        .listSync(recursive: true)
+        .whereType<File>()
+        .map((f) => f.path.replaceAll(r'\', '/'))
+        .where((path) => path.endsWith('.json'))
+        .map((path) => path.substring(prefix.length))
+        .toSet();
+    final covered = {
+      ...requestCases.keys,
+      ...responseCases.keys,
+      ...eventCases.keys,
+    };
+    expect(covered.difference(onDisk), isEmpty,
+        reason: 'cases without a fixture file');
+    expect(onDisk.difference(covered), isEmpty,
+        reason: 'fixture files without a Dart case — extend the tables');
+  });
+}

@@ -1,0 +1,49 @@
+# iron-link daemon — systemd system service (Linux).
+#
+# Installed by the native package (see packaging/arch/PKGBUILD) or by hand:
+#   sudo cp iron-link.service /etc/systemd/system/   # or /usr/lib/systemd/system
+#   sudo systemctl daemon-reload && sudo systemctl enable --now iron-link
+#
+# Rendezvous (daemon + client agree on one socket) is wired end-to-end:
+#   - the daemon honors IRON_LINK_SOCKET (ipc/listen_unix.go) and, as a bare-root
+#     service under Group=iron-link, creates the socket group-owned + 0660
+#     (ipc.socketMode) so a group member can connect without being root;
+#   - the unprivileged client probes /run/iron-link/iron-link.sock as a fallback
+#     (Endpoint.systemSocket in client-flutter).
+# So the only per-machine bit is which user's config the root daemon serves —
+# set in /etc/iron-link/config.env (created by the package's post-install).
+
+[Unit]
+Description=iron-link — proxy/VPN orchestrator (embedded sing-box + xray)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/iron-link-daemon
+Restart=on-failure
+RestartSec=2
+
+# Runs as root: TUN needs CAP_NET_ADMIN/CAP_NET_RAW and the daemon rewrites
+# system DNS (systemd-resolved) — root sidesteps the polkit prompt entirely.
+# This mirrors the Windows LocalSystem service.
+User=root
+
+# A boot-time root service cannot use the user's $XDG_RUNTIME_DIR (/run/user/UID
+# may not exist until login), so the control socket is pinned to a fixed system
+# path. systemd creates/cleans /run/iron-link owned root:iron-link; the daemon
+# binds the socket there and (running under Group=iron-link, egid != 0) chmods it
+# 0660 — a member of the iron-link group, i.e. the unprivileged client, connects.
+RuntimeDirectory=iron-link
+RuntimeDirectoryMode=0750
+Group=iron-link
+Environment=IRON_LINK_SOCKET=/run/iron-link/iron-link.sock
+
+# Point the root daemon at the owning user's profiles/config, exactly like the
+# Windows service bakes IRON_LINK_CONFIG_DIR. The package's post-install writes
+# IRON_LINK_CONFIG_DIR=/home/<user>/.config/iron-link here; "-" = optional, so the
+# service still starts (daemon falls back to /root/.config) if the file is absent.
+EnvironmentFile=-/etc/iron-link/config.env
+
+[Install]
+WantedBy=multi-user.target

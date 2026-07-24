@@ -1,0 +1,104 @@
+# Maintainer: grimnir-sidskegg <308536721+grimnir-sidskegg@users.noreply.github.com>
+#
+# Builds iron-link from the latest GitHub `main` (Go daemon + Flutter Linux GUI),
+# installs the daemon as a root systemd service, the GUI into the app menu, and
+# wires the two together over /run/iron-link/iron-link.sock.
+#
+#   makepkg -si        # install (and, run again later, upgrade to latest main)
+#   pacman -R iron-link # clean removal
+#
+# `flutter` (stable channel) must be on PATH — it is not in the official repos
+# and is commonly installed outside pacman, so it is checked in prepare()
+# rather than declared as a makedepend.
+
+_pkgname=iron-link
+pkgname=iron-link-git
+pkgver=0.1.0.alpha.1.r89.gbeb3f37
+pkgrel=1
+pkgdesc="Proxy/VPN orchestrator with embedded sing-box + xray (Go daemon + Flutter client)"
+arch=('x86_64')
+url="https://github.com/grimnir-sidskegg/iron-link"
+license=('GPL-3.0-or-later')
+depends=('gtk3')
+makedepends=('go' 'git' 'cmake' 'ninja' 'clang' 'pkgconf')
+provides=('iron-link')
+conflicts=('iron-link')
+# Daemon is built -s -w and the Flutter bundle ships its own optimized libs;
+# don't let makepkg re-strip the bundle or emit a debug package.
+options=('!strip' '!debug')
+# Build from main over SSH (GitHub no longer accepts password/token auth over
+# https). For a public clone with no key use git+https://github.com/...; to
+# build a local (committed) tree without pushing first, point at
+# git+file:///path/to/iron_link instead.
+source=("$_pkgname::git+ssh://git@github.com/grimnir-sidskegg/iron-link.git")
+sha256sums=('SKIP')
+install="$_pkgname.install"
+
+_bundle_dir="client-flutter/build/linux/x64/release/bundle"
+_libdir="/usr/lib/iron-link"
+
+pkgver() {
+  cd "$srcdir/$_pkgname"
+  git describe --long --tags --abbrev=7 2>/dev/null \
+    | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' \
+    || printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+}
+
+prepare() {
+  command -v flutter >/dev/null || {
+    echo "==> ERROR: 'flutter' (stable) not found on PATH. Install it and re-run." >&2
+    return 1
+  }
+}
+
+build() {
+  cd "$srcdir/$_pkgname"
+  local tags="with_gvisor,with_utls,with_clash_api,with_quic"
+
+  # Go daemon — static (CGO off), embeds sing-box + xray, no runtime deps.
+  export CGO_ENABLED=0
+  export GOFLAGS="-trimpath -mod=readonly -modcacherw"
+  ( cd daemon-go
+    go build -tags "$tags" -ldflags="-s -w -buildid=" \
+      -o bin/iron-link-daemon ./cmd/iron-link-daemon )
+
+  # Flutter Linux GUI — produces $_bundle_dir (exe + lib/ + data/).
+  ( cd client-flutter
+    flutter config --enable-linux-desktop >/dev/null
+    flutter pub get
+    flutter build linux --release )
+}
+
+check() {
+  cd "$srcdir/$_pkgname/daemon-go"
+  go test -tags "with_gvisor,with_utls,with_clash_api,with_quic" ./...
+}
+
+package() {
+  cd "$srcdir/$_pkgname"
+
+  # Daemon binary.
+  install -Dm755 daemon-go/bin/iron-link-daemon "$pkgdir/usr/bin/iron-link-daemon"
+
+  # Flutter GUI bundle, with a launcher symlink. The embedder resolves its
+  # data/ + lib/ from the real path of /proc/self/exe, so a symlink is fine.
+  install -d "$pkgdir$_libdir"
+  cp -r "$_bundle_dir/." "$pkgdir$_libdir/"
+  install -d "$pkgdir/usr/bin"
+  ln -s "$_libdir/iron_link_flutter" "$pkgdir/usr/bin/iron-link"
+
+  # systemd service (root daemon, auto-start).
+  install -Dm644 packaging/systemd/iron-link.service \
+    "$pkgdir/usr/lib/systemd/system/iron-link.service"
+
+  # Desktop entry + icon.
+  install -Dm644 packaging/arch/iron-link.desktop \
+    "$pkgdir/usr/share/applications/iron-link.desktop"
+  install -Dm644 client-flutter/assets/logo-emblem.png \
+    "$pkgdir/usr/share/icons/hicolor/256x256/apps/iron-link.png"
+
+  # GPL-3.0 compliance: ship the license texts (the daemon embeds sing-box).
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 THIRD_PARTY_LICENSES \
+    "$pkgdir/usr/share/licenses/$pkgname/THIRD_PARTY_LICENSES"
+}

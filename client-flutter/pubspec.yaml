@@ -1,0 +1,70 @@
+name: iron_link_flutter
+description: "iron_link Flutter client — a thin front-end over the Go daemon's typed IPC."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # System open-file dialogs (Linux/Windows/macOS) for the routing editor's
+  # process_path / process_name browse buttons.
+  file_selector: ^1.1.0
+  # Utf16 + calloc helpers for the hand-written kernel32 bindings behind the
+  # Windows named-pipe transport (dart:io has no named-pipe client). Second
+  # non-SDK dependency after file_selector; a Dart-team package (owner
+  # decision 2026-06-13 — package:ffi only, no package:win32).
+  ffi: ^2.1.0
+  # System tray. We speak the StatusNotifierItem (SNI) DBus protocol ourselves
+  # via this pure-Dart DBus library (Canonical) rather than the tray_manager /
+  # system_tray plugins, which HARD-require libayatana-appindicator on Linux —
+  # the dep the owner deliberately removed. `dbus` adds NO native .so (it's a
+  # from-scratch Dart wire impl). See lib/src/platform/tray/ and ROADMAP.
+  dbus: ^0.7.14
+  # Hide-to-tray: intercept the window-close so it minimises to the tray icon
+  # instead of quitting, and show/focus the window from the tray menu.
+  window_manager: ^0.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  collection: ^1.19.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    # The app emblem, rendered (with a state-colored status dot) into the
+    # tray icon's ARGB pixmap at runtime — see lib/src/platform/tray/tray_icon.dart.
+    - assets/logo-emblem.png
+  fonts:
+    # The designer's type system (bundled, not network-fetched — the app stays
+    # offline-first and dependency-light, the same call as the flag subset
+    # below). Each is the upstream *variable* .ttf (one file spans every weight
+    # we use); Flutter maps `fontWeight` onto the `wght` axis. SIL OFL 1.1 —
+    # see the matching *-OFL.txt beside each file.
+    #   Space Grotesk     — display / headings / status word  (600, 700)
+    #   Plus Jakarta Sans  — body / UI / labels / rows         (400–700)
+    #   JetBrains Mono     — numbers, latency, IPs, log lines  (400, 500)
+    - family: SpaceGrotesk
+      fonts:
+        - asset: assets/fonts/SpaceGrotesk.ttf
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans.ttf
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono.ttf
+    # Country-flag emoji in node / subscription names render on Windows too.
+    # Segoe UI Emoji has no flag glyphs (Microsoft omits them), so without a
+    # bundled font those names show as bare regional-indicator letter pairs.
+    # This is a flags-only subset of Noto Color Emoji (SIL OFL 1.1 — see
+    # assets/fonts/NotoColorEmoji-LICENSE.txt): 259 flag ligatures + the 26
+    # regional-indicator glyphs, ~0.85 MB vs the full font's ~10 MB. Wired
+    # into the theme's fontFamilyFallback (lib/src/ui/app.dart) so any Text
+    # falls back to it for the flag codepoints on every platform.
+    - family: NotoColorEmojiFlags
+      fonts:
+        - asset: assets/fonts/NotoColorEmoji-Flags.ttf

@@ -1,0 +1,1 @@
+{"status": "routing", "routing": [{"id": "r1", "name": "basic", "rules": 4, "rule_sets": 2, "active": true}, {"id": "r2", "name": "(default)", "rules": 0, "rule_sets": 0, "active": false}]}

@@ -1,0 +1,1 @@
+{"status": "routing_config", "routing_config": {"id": "r1", "name": "basic", "rule_sets": [], "rules": [{"target": "DefaultProxy", "domain_keyword": ["example.com"]}], "default_target": "Direct"}}

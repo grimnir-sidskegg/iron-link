@@ -1,0 +1,1 @@
+{"command": "add_node", "url": "vless://00000000-0000-0000-0000-000000000000@example.com:443?security=reality&sni=cdn.example.com&pbk=KEY&fp=chrome&type=tcp#Grimnir"}

@@ -1,0 +1,186 @@
+name: Build & Release
+
+on:
+  workflow_dispatch: # manual runs are the normal path — trigger a build on demand
+  # No build on every push to main: commits accumulate and are built when
+  # wanted via the manual run above (each run still attaches the per-OS bundle
+  # + Windows installer). A v* tag push additionally cuts a GitHub Release
+  # (see the tag-gated "Attach to release" step below).
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # create releases + upload assets on tags
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux build disabled — the maintainer runtime-tests Linux locally
+          # (Arch PKGBUILD built from main via makepkg), so CI Linux minutes add
+          # no signal. Re-enable by uncommenting:
+          # - os: ubuntu-latest
+          #   target: linux-amd64
+          #   archive: tar.gz
+          # macOS build disabled for now — no Mac available to runtime-test the
+          # bundle, and per ROADMAP M0 macOS is source-build only (unsigned
+          # bundles get Gatekeeper-quarantined). Re-enable by uncommenting:
+          # - os: macos-latest
+          #   target: darwin-arm64
+          #   archive: tar.gz
+          - os: windows-latest
+            target: windows-amd64
+            archive: zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Go toolchain
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon-go/go.mod
+          cache-dependency-path: daemon-go/go.sum
+
+      - name: Install Flutter
+        if: runner.os != 'macOS'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Python (for packaging scripts)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build Go daemon (embeds sing-box + xray)
+        shell: bash
+        run: |
+          cd daemon-go
+          TAGS="with_gvisor,with_utls,with_clash_api,with_quic"
+          go vet -tags "$TAGS" ./...
+          go test -tags "$TAGS" ./...
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+            -tags "$TAGS" \
+            -o bin/iron-link-daemon${{ runner.os == 'Windows' && '.exe' || '' }} \
+            ./cmd/iron-link-daemon
+
+      # Ordering is a contract: the live smoke spawns the freshly built
+      # daemon-go/bin/iron-link-daemon[.exe]. On Windows this is the
+      # end-to-end proof of the named-pipe transport against the real
+      # daemon (and its real SDDL).
+      - name: Flutter analyze + test
+        if: runner.os != 'macOS'
+        shell: bash
+        working-directory: client-flutter
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+      # The Flutter desktop app only builds on its own OS — this is the
+      # only way to get a Windows GUI binary without a Windows dev box.
+      # Uploaded as its own artifact; bundle/installer integration is the
+      # M0 packaging task.
+      - name: Build Flutter app (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: client-flutter
+        run: flutter build windows --release
+
+      - name: Upload Flutter app (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v5
+        with:
+          name: iron-link-flutter-windows-amd64
+          path: client-flutter/build/windows/x64/runner/Release/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Compute version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Single-file installer for the Flutter client + the elevated daemon.
+      # Runs only on Windows, after both halves are built and the version is
+      # known. The .iss explains the no-service / RUNASADMIN design.
+      - name: Build Windows installer (Inno Setup)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # App-local–deploy the MSVC runtime so the Flutter exe launches on a
+          # machine without the VC++ redist (flutter build does not bundle it).
+          $rel = "client-flutter\build\windows\x64\runner\Release"
+          foreach ($dll in "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") {
+            $src = Join-Path $env:WINDIR "System32\$dll"
+            if (Test-Path $src) { Copy-Item $src $rel -Force }
+          }
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            $cmd = Get-Command iscc -ErrorAction SilentlyContinue
+            if ($cmd) { $iscc = $cmd.Source }
+            else { choco install innosetup -y --no-progress }
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          & $iscc `
+            "/DAppVersion=${{ steps.ver.outputs.version }}" `
+            "/DDaemonExe=${{ github.workspace }}\daemon-go\bin\iron-link-daemon.exe" `
+            "/DFlutterDir=${{ github.workspace }}\client-flutter\build\windows\x64\runner\Release" `
+            "/DOutputDir=${{ github.workspace }}\dist" `
+            "/DOutputBase=iron-link-${{ steps.ver.outputs.version }}-windows-amd64-setup" `
+            packaging\windows\iron-link.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+
+      - name: Upload Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v5
+        with:
+          name: iron-link-windows-installer
+          path: dist/iron-link-*-setup.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Assemble bundle
+        run: >
+          python packaging/assemble.py
+          --target ${{ matrix.target }}
+          --version ${{ steps.ver.outputs.version }}
+          --daemon-bin daemon-go/bin/iron-link-daemon${{ runner.os == 'Windows' && '.exe' || '' }}
+          --staging dist
+          --archive ${{ matrix.archive }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: iron-link-${{ matrix.target }}
+          path: |
+            dist/iron-link-*.tar.gz
+            dist/iron-link-*.zip
+            dist/iron-link-*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          # A tag with a pre-release identifier (e.g. v0.1.0-alpha.1) → marked
+          # as a GitHub pre-release, not "Latest".
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            dist/iron-link-*.tar.gz
+            dist/iron-link-*.zip
+            dist/iron-link-*.sha256
+            dist/iron-link-*-setup.exe

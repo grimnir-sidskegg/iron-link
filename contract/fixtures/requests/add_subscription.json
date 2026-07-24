@@ -1,0 +1,1 @@
+{"command": "add_subscription", "url": "https://example.com/sub", "name": "main", "allow_invalid_certs": true}
