@@ -125,6 +125,11 @@ Future<String?> promptProfileName(BuildContext context) {
   );
 }
 
+/// The subscription parse formats the daemon accepts, in dropdown order.
+const _subscriptionFormats = [
+  'auto', 'links', 'xray', 'sing-box', 'clash', 'sip008',
+];
+
 /// The editable fields [promptEditSubscription] returns. (Auto-refresh
 /// interval will join these once the daemon actually auto-refreshes.)
 class SubscriptionEdit {
@@ -133,12 +138,17 @@ class SubscriptionEdit {
     required this.url,
     required this.enabled,
     required this.allowInvalidCerts,
+    this.format,
   });
 
   final String name;
   final String url;
   final bool enabled;
   final bool allowInvalidCerts;
+
+  /// The newly chosen parse format, or null when unchanged (the
+  /// `update_subscription` verb leaves an absent field alone).
+  final String? format;
 }
 
 /// Prompts to edit a subscription's metadata, pre-filled from [sub]; resolves
@@ -149,6 +159,12 @@ Future<SubscriptionEdit?> promptEditSubscription(
   final urlController = TextEditingController(text: sub.url);
   var enabled = sub.enabled;
   var allowInvalidCerts = sub.allowInvalidCerts;
+  var format = sub.format;
+  // A format this client does not know (a newer daemon) still preselects —
+  // it joins the list rather than tripping the dropdown's value assert.
+  final formats = _subscriptionFormats.contains(sub.format)
+      ? _subscriptionFormats
+      : [sub.format, ..._subscriptionFormats];
   return showDialog<SubscriptionEdit>(
     context: context,
     builder: (context) => StatefulBuilder(
@@ -168,6 +184,17 @@ Future<SubscriptionEdit?> promptEditSubscription(
               TextField(
                 controller: urlController,
                 decoration: const InputDecoration(labelText: 'URL'),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: format,
+                decoration: const InputDecoration(labelText: 'Format'),
+                items: [
+                  for (final f in formats)
+                    DropdownMenuItem(
+                        value: f, child: Text(f == 'auto' ? 'auto (detect)' : f)),
+                ],
+                onChanged: (v) => setState(() => format = v ?? format),
               ),
               const SizedBox(height: 8),
               SwitchListTile(
@@ -202,7 +229,10 @@ Future<SubscriptionEdit?> promptEditSubscription(
                       name: name,
                       url: url,
                       enabled: enabled,
-                      allowInvalidCerts: allowInvalidCerts));
+                      allowInvalidCerts: allowInvalidCerts,
+                      // Only a CHANGED format goes on the wire; null keeps
+                      // the daemon's stored pin untouched.
+                      format: format == sub.format ? null : format));
             },
             child: const Text('Save'),
           ),

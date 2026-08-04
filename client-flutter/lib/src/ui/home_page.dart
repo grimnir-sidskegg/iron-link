@@ -352,7 +352,15 @@ class _HomePageState extends State<HomePage> {
     final lines = results.map((r) {
       if (r.error != null) return '${r.name}: ${r.error}';
       if (r.skipped) return '${r.name}: skipped (disabled)';
-      return '${r.name}: ${r.count} nodes (+${r.added} −${r.removed})';
+      // An empty format is an older daemon without the parse accounting.
+      if (r.format.isEmpty) {
+        return '${r.name}: ${r.count} nodes (+${r.added} −${r.removed})';
+      }
+      final line = '${r.name}: ${r.format} · ${r.entries} entries '
+          '→ ${r.count} nodes (+${r.added} −${r.removed})';
+      return r.unrecognized > 0
+          ? '$line · ${r.unrecognized} unrecognized'
+          : line;
     });
     showSnack(
       context,
@@ -839,6 +847,7 @@ class _HomePageState extends State<HomePage> {
         url: edit.url,
         enabled: edit.enabled,
         allowInvalidCerts: edit.allowInvalidCerts,
+        format: edit.format,
       ),
     );
     if (ok && mounted) {

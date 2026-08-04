@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "servers": [
+    {
+      "id": "00000000-0000-4000-8000-000000000070",
+      "remarks": "Plain One",
+      "server": "198.51.100.101",
+      "server_port": 8388,
+      "password": "sip008-pass-one",
+      "method": "aes-256-gcm"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000071",
+      "remarks": "Plain Two",
+      "server": "203.0.113.102",
+      "server_port": 443,
+      "password": "sip008-pass-two",
+      "method": "chacha20-ietf-poly1305"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000072",
+      "remarks": "Obfs Front",
+      "server": "198.51.100.103",
+      "server_port": 8080,
+      "password": "sip008-pass-three",
+      "method": "aes-128-gcm",
+      "plugin": "obfs-local",
+      "plugin_opts": "obfs=http;obfs-host=www.example.com"
+    }
+  ]
+}

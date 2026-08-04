@@ -8,12 +8,10 @@ package subscription
 import (
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"ironlink/daemon/internal/api"
@@ -74,30 +72,6 @@ func Fetch(ctx context.Context, subURL string, allowInvalidCerts bool, ua string
 	return string(body), nil
 }
 
-// ParseBody decodes a subscription document into nodes owned by subID. The
-// body is either standard-base64 of share links or the share links plainly;
-// the base64 branch is taken only when it decodes to UTF-8 that LOOKS like
-// links (contains "://" — mirrors the Rust heuristic). Unparseable lines are
-// skipped, not fatal: providers mix link schemes and we take what we speak.
-func ParseBody(body, subID string) []store.Node {
-	text := body
-	if decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(body)); err == nil {
-		if s := string(decoded); strings.Contains(s, "://") {
-			text = s
-		}
-	}
-
-	var nodes []store.Node
-	for line := range strings.SplitSeq(text, "\n") {
-		p, err := proxy.ParseURL(strings.TrimSpace(line))
-		if err != nil {
-			continue
-		}
-		nodes = append(nodes, store.NewNode(p, &subID))
-	}
-	return nodes
-}
-
 // Result is one subscription's refresh outcome (name + what happened).
 type Result struct {
 	SubID string
@@ -111,6 +85,12 @@ type Result struct {
 	Skipped bool
 	// Err is the fetch/parse failure, "" on success. The old nodes are kept.
 	Err string
+	// The parse accounting on success (see Outcome): the dialect that
+	// matched and the entry/duplicate/unrecognized counts.
+	Format       string
+	Entries      int
+	Duplicates   int
+	Unrecognized int
 }
 
 // Refresh re-fetches subscriptions in p and replaces their nodes, carrying
@@ -140,7 +120,21 @@ func Refresh(ctx context.Context, p *store.Profile, only, ua string) []Result {
 			results = append(results, Result{SubID: sub.ID, Name: sub.Name, Err: err.Error()})
 			continue
 		}
-		newNodes := ParseBody(body, sub.ID)
+		// A stored format is validated at the wire boundary; a value this
+		// build no longer knows (downgrade) falls back to detection.
+		format, err := ParseFormat(sub.Format)
+		if err != nil {
+			format = FormatAuto
+		}
+		// A parse failure — unrecognized dialect OR zero usable nodes — is a
+		// failed refresh: old nodes stay, last_updated stays. An empty body
+		// must never masquerade as a successful empty subscription.
+		outcome, err := Parse(body, sub.ID, format)
+		if err != nil {
+			results = append(results, Result{SubID: sub.ID, Name: sub.Name, Err: err.Error()})
+			continue
+		}
+		newNodes := outcome.Nodes
 		carryPrefs(p, sub.ID, newNodes)
 		added, removed := diffNodes(p, sub.ID, newNodes)
 
@@ -149,6 +143,10 @@ func Refresh(ctx context.Context, p *store.Profile, only, ua string) []Result {
 		results = append(results, Result{
 			SubID: sub.ID, Name: sub.Name,
 			Count: len(newNodes), Added: added, Removed: removed,
+			Format:       string(outcome.Format),
+			Entries:      outcome.Entries,
+			Duplicates:   outcome.Duplicates,
+			Unrecognized: outcome.Unrecognized,
 		})
 	}
 	return results

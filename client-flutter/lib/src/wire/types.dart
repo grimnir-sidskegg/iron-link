@@ -247,6 +247,7 @@ class SubscriptionInfo {
     this.allowInvalidCerts = false,
     this.lastUpdated,
     this.nodeCount = 0,
+    this.format = 'auto',
   });
 
   SubscriptionInfo.fromJson(Map<String, Object?> json)
@@ -256,7 +257,8 @@ class SubscriptionInfo {
         enabled = _bool(json['enabled'], true),
         allowInvalidCerts = _bool(json['allow_invalid_certs']),
         lastUpdated = _strOpt(json['last_updated']),
-        nodeCount = _int(json['node_count']);
+        nodeCount = _int(json['node_count']),
+        format = _str(json['format'], 'auto');
 
   final String id;
   final String name;
@@ -267,6 +269,11 @@ class SubscriptionInfo {
   /// RFC 3339, as emitted by the daemon.
   final String? lastUpdated;
   final int nodeCount;
+
+  /// The pinned parse format ("links" / "xray" / "sing-box" / "clash" /
+  /// "sip008"), or "auto" when unpinned. The daemon always sends it; the
+  /// default only covers an older daemon that does not.
+  final String format;
 }
 
 /// One routing-rule condition field from the daemon's `routing_schema`.
@@ -348,6 +355,10 @@ class RefreshInfo {
     this.removed = 0,
     this.skipped = false,
     this.error,
+    this.format = '',
+    this.entries = 0,
+    this.duplicates = 0,
+    this.unrecognized = 0,
   });
 
   RefreshInfo.fromJson(Map<String, Object?> json)
@@ -356,7 +367,11 @@ class RefreshInfo {
         added = _int(json['added']),
         removed = _int(json['removed']),
         skipped = _bool(json['skipped']),
-        error = _strOpt(json['error']);
+        error = _strOpt(json['error']),
+        format = _str(json['format']),
+        entries = _int(json['entries']),
+        duplicates = _int(json['duplicates']),
+        unrecognized = _int(json['unrecognized']);
 
   final String name;
   final int count;
@@ -364,6 +379,15 @@ class RefreshInfo {
   final int removed;
   final bool skipped;
   final String? error;
+
+  /// Parse accounting for a fetch that ran: the format that parsed the
+  /// payload, raw [entries] seen, [duplicates] / [unrecognized] dropped.
+  /// The daemon omits zero values and sends none of these on skip/error
+  /// rows (or from an older daemon) — all default to ""/0.
+  final String format;
+  final int entries;
+  final int duplicates;
+  final int unrecognized;
 }
 
 /// The daemon-global settings document (`get_settings` / `set_settings`).

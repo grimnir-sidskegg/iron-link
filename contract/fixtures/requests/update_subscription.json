@@ -1,1 +1,1 @@
-{"command": "update_subscription", "sub": "main", "name": "Main (EU)", "url": "https://example.com/sub2", "enabled": false, "allow_invalid_certs": true, "update_interval_sec": 43200}
+{"command": "update_subscription", "sub": "main", "name": "Main (EU)", "url": "https://example.com/sub2", "enabled": false, "allow_invalid_certs": true, "update_interval_sec": 43200, "format": "sing-box"}

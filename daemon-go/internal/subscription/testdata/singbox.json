@@ -1,0 +1,104 @@
+{
+  "log": {"level": "info"},
+  "inbounds": [
+    {"type": "mixed", "tag": "in", "listen": "127.0.0.1", "listen_port": 2080}
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Proxy",
+      "outbounds": ["Stockholm Reality", "Oslo SS", "Helsinki Hy2", "Riga Trojan", "Tallinn TUIC", "Kyiv VMess", "Vilnius AnyTLS", "Legacy Hy1", "Fastest"],
+      "default": "Stockholm Reality"
+    },
+    {
+      "type": "urltest",
+      "tag": "Fastest",
+      "outbounds": ["Stockholm Reality", "Oslo SS"],
+      "url": "https://www.example.com/generate_204",
+      "interval": "5m"
+    },
+    {
+      "type": "vless",
+      "tag": "Stockholm Reality",
+      "server": "198.51.100.20",
+      "server_port": 443,
+      "uuid": "00000000-0000-4000-8000-0000000000aa",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.example.com",
+        "utls": {"enabled": true, "fingerprint": "chrome"},
+        "reality": {"enabled": true, "public_key": "singbox-reality-pbk-placeholder", "short_id": "abcd0123"}
+      }
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "Oslo SS",
+      "server": "198.51.100.21",
+      "server_port": 8388,
+      "method": "2022-blake3-aes-128-gcm",
+      "password": "c3MtcGxhY2Vob2xkZXIta2V5"
+    },
+    {
+      "type": "hysteria2",
+      "tag": "Helsinki Hy2",
+      "server": "198.51.100.22",
+      "server_port": 443,
+      "password": "hy2-placeholder-pass",
+      "obfs": {"type": "salamander", "password": "obfs-placeholder"},
+      "tls": {"enabled": true, "server_name": "hy2.example.com", "insecure": true}
+    },
+    {
+      "type": "trojan",
+      "tag": "Riga Trojan",
+      "server": "198.51.100.23",
+      "server_port": 443,
+      "password": "trojan-placeholder-pass",
+      "tls": {"enabled": true, "server_name": "riga.example.org"},
+      "transport": {"type": "ws", "path": "/trojan", "headers": {"Host": "riga.example.org"}}
+    },
+    {
+      "type": "tuic",
+      "tag": "Tallinn TUIC",
+      "server": "198.51.100.24",
+      "server_port": 8443,
+      "uuid": "00000000-0000-4000-8000-0000000000bb",
+      "password": "tuic-placeholder-pass",
+      "congestion_control": "bbr",
+      "udp_relay_mode": "native",
+      "tls": {"enabled": true, "server_name": "tuic.example.com", "alpn": ["h3"]}
+    },
+    {
+      "type": "vmess",
+      "tag": "Kyiv VMess",
+      "server": "198.51.100.25",
+      "server_port": 443,
+      "uuid": "00000000-0000-4000-8000-0000000000cc",
+      "security": "auto",
+      "alter_id": 0,
+      "tls": {"enabled": true, "server_name": "kyiv.example.com"},
+      "transport": {"type": "ws", "path": "/vm"}
+    },
+    {
+      "type": "anytls",
+      "tag": "Vilnius AnyTLS",
+      "server": "198.51.100.26",
+      "server_port": 8443,
+      "password": "anytls-placeholder-pass",
+      "tls": {"enabled": true, "server_name": "vilnius.example.com"}
+    },
+    {
+      "type": "hysteria",
+      "tag": "Legacy Hy1",
+      "server": "198.51.100.27",
+      "server_port": 9443,
+      "auth_str": "hy1-placeholder-auth",
+      "up_mbps": 100,
+      "down_mbps": 100,
+      "obfs": "obfs-placeholder",
+      "tls": {"enabled": true, "server_name": "legacy.example.com", "alpn": ["hysteria"]}
+    },
+    {"type": "direct", "tag": "direct"}
+  ],
+  "route": {"final": "Proxy", "auto_detect_interface": true}
+}

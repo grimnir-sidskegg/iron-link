@@ -119,6 +119,11 @@ type Request struct {
 	Name *string `json:"name,omitempty"`
 	// add_subscription: skip TLS verification for this source (default false)
 	AllowInvalidCerts *bool `json:"allow_invalid_certs,omitempty"`
+	// add_subscription / update_subscription (optional): the body dialect —
+	// "auto" (default: detect), "links", "xray", "sing-box", "clash",
+	// "sip008". Auto fits nearly every provider; an explicit value is the
+	// escape hatch for a body the detection misreads.
+	Format *string `json:"format,omitempty"`
 	// refresh_subscriptions (optional; nil = all enabled),
 	// remove_subscription (required) AND update_subscription (required):
 	// subscription id or name
@@ -293,6 +298,8 @@ type SubscriptionInfo struct {
 	// LastUpdated is RFC 3339.
 	LastUpdated string `json:"last_updated"`
 	NodeCount   int    `json:"node_count"`
+	// Format is the stored body dialect ("auto" unless the user pinned one).
+	Format string `json:"format"`
 }
 
 // RefreshInfo is one subscription's refresh outcome.
@@ -303,6 +310,14 @@ type RefreshInfo struct {
 	Removed int    `json:"removed"`
 	Skipped bool   `json:"skipped,omitempty"`
 	Error   string `json:"error,omitempty"`
+	// The parse accounting of a successful refresh: the dialect that matched,
+	// how many entries the document held, how many parsed links were dropped
+	// as duplicates, and how many entries no parser understood. All zero on
+	// skip/error.
+	Format       string `json:"format,omitempty"`
+	Entries      int    `json:"entries,omitempty"`
+	Duplicates   int    `json:"duplicates,omitempty"`
+	Unrecognized int    `json:"unrecognized,omitempty"`
 }
 
 // LatencyResult is one node's probe outcome.
@@ -405,9 +420,13 @@ type Event struct {
 	Role  *CoreRole `json:"role,omitempty"`
 	Stage string    `json:"stage,omitempty"`
 
-	// subscription_updated
+	// subscription_updated. The full parse accounting (entries/duplicates/
+	// unrecognized) travels on the refresh RESPONSE (RefreshInfo) — the event
+	// carries just the dialect that matched ("entries" is taken by the state
+	// union above).
 	SubID   string `json:"sub_id,omitempty"`
 	Added   int    `json:"added,omitempty"`
 	Removed int    `json:"removed,omitempty"`
 	Total   int    `json:"total,omitempty"`
+	Format  string `json:"format,omitempty"`
 }

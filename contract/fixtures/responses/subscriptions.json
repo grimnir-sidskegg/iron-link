@@ -1,1 +1,1 @@
-{"status": "subscriptions", "subscriptions": [{"id": "s1", "name": "main", "url": "https://example.com/sub", "enabled": true, "allow_invalid_certs": false, "last_updated": "2026-06-10T12:00:00Z", "node_count": 42}]}
+{"status": "subscriptions", "subscriptions": [{"id": "s1", "name": "main", "url": "https://example.com/sub", "enabled": true, "allow_invalid_certs": false, "last_updated": "2026-06-10T12:00:00Z", "node_count": 42, "format": "auto"}]}

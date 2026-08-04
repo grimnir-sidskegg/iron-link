@@ -60,25 +60,31 @@ final class LogEvent extends Event {
   final String message;
 }
 
-/// `subscription_updated` — a refresh landed; zero counts may be omitted.
+/// `subscription_updated` — a refresh landed; zero counts (and the format,
+/// from an older daemon) may be omitted.
 final class SubscriptionUpdatedEvent extends Event {
   const SubscriptionUpdatedEvent({
     this.subId = '',
     this.added = 0,
     this.removed = 0,
     this.total = 0,
+    this.format = '',
   });
 
   SubscriptionUpdatedEvent.fromJson(Map<String, Object?> json)
       : subId = _str(json['sub_id']),
         added = _int(json['added']),
         removed = _int(json['removed']),
-        total = _int(json['total']);
+        total = _int(json['total']),
+        format = _str(json['format']);
 
   final String subId;
   final int added;
   final int removed;
   final int total;
+
+  /// The format that parsed the payload; "" when omitted.
+  final String format;
 }
 
 /// `core_error` — declared on the wire as the G5 foundation; the daemon

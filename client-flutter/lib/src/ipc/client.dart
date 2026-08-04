@@ -267,9 +267,9 @@ class DaemonClient {
           .subscriptions;
 
   Future<List<RefreshInfo>> addSubscription(String url,
-          {String? name, bool? allowInvalidCerts}) async =>
+          {String? name, bool? allowInvalidCerts, String? format}) async =>
       (await _expect<RefreshedResponse>(AddSubscriptionRequest(url,
-              name: name, allowInvalidCerts: allowInvalidCerts)))
+              name: name, allowInvalidCerts: allowInvalidCerts, format: format)))
           .refreshed;
 
   Future<List<RefreshInfo>> refreshSubscriptions({String? sub}) async =>
@@ -285,13 +285,15 @@ class DaemonClient {
           String? url,
           bool? enabled,
           bool? allowInvalidCerts,
-          int? updateIntervalSec}) =>
+          int? updateIntervalSec,
+          String? format}) =>
       _expect<OkResponse>(UpdateSubscriptionRequest(sub,
           name: name,
           url: url,
           enabled: enabled,
           allowInvalidCerts: allowInvalidCerts,
-          updateIntervalSec: updateIntervalSec));
+          updateIntervalSec: updateIntervalSec,
+          format: format));
 
   Future<List<RoutingInfo>> listRouting() async =>
       (await _expect<RoutingResponse>(const ListRoutingRequest())).routing;

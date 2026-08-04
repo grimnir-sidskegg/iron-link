@@ -253,13 +253,16 @@ final class ListSubscriptionsRequest extends Request {
 }
 
 /// `add_subscription` — the reply is `refreshed` (the initial fetch
-/// outcome). Null name = derived from the URL host.
+/// outcome). Null name = derived from the URL host; null format = "auto"
+/// (detect on every fetch).
 final class AddSubscriptionRequest extends Request {
-  const AddSubscriptionRequest(this.url, {this.name, this.allowInvalidCerts});
+  const AddSubscriptionRequest(this.url,
+      {this.name, this.allowInvalidCerts, this.format});
 
   final String url;
   final String? name;
   final bool? allowInvalidCerts;
+  final String? format;
 
   @override
   Map<String, Object?> toJson() => {
@@ -267,6 +270,7 @@ final class AddSubscriptionRequest extends Request {
         'url': url,
         if (name != null) 'name': name,
         if (allowInvalidCerts != null) 'allow_invalid_certs': allowInvalidCerts,
+        if (format != null) 'format': format,
       };
 }
 
@@ -306,6 +310,7 @@ final class UpdateSubscriptionRequest extends Request {
     this.enabled,
     this.allowInvalidCerts,
     this.updateIntervalSec,
+    this.format,
   });
 
   final String sub;
@@ -314,6 +319,7 @@ final class UpdateSubscriptionRequest extends Request {
   final bool? enabled;
   final bool? allowInvalidCerts;
   final int? updateIntervalSec;
+  final String? format;
 
   @override
   Map<String, Object?> toJson() => {
@@ -325,6 +331,7 @@ final class UpdateSubscriptionRequest extends Request {
         if (allowInvalidCerts != null) 'allow_invalid_certs': allowInvalidCerts,
         if (updateIntervalSec != null)
           'update_interval_sec': updateIntervalSec,
+        if (format != null) 'format': format,
       };
 }
 

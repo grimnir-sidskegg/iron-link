@@ -1,0 +1,95 @@
+# Synthetic Clash/mihomo subscription fixture. All addresses are RFC-5737
+# documentation ranges / example.com names; all credentials are placeholders.
+port: 7890
+socks-port: 7891
+mode: rule
+log-level: info
+proxies:
+  - name: "US Basic ⚡"
+    type: ss
+    server: 198.51.100.10
+    port: 8388
+    cipher: aes-256-gcm
+    password: ss-placeholder-pass
+  - name: "US Basic Backup"
+    type: ss
+    server: 198.51.100.10
+    port: 8388
+    cipher: aes-256-gcm
+    password: ss-placeholder-pass
+  - name: "WS VMess"
+    type: vmess
+    server: 198.51.100.20
+    port: 443
+    uuid: 6ba7b811-9dad-11d1-80b4-00c04fd430c8
+    alterId: 0
+    cipher: auto
+    tls: true
+    servername: cdn.example.com
+    network: ws
+    ws-opts:
+      path: /ws
+      headers:
+        Host: cdn.example.com
+  - name: "Reality Vision"
+    type: vless
+    server: 203.0.113.30
+    port: 443
+    uuid: 6ba7b812-9dad-11d1-80b4-00c04fd430c8
+    flow: xtls-rprx-vision
+    tls: true
+    servername: www.example.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: placeholder-public-key
+      short-id: 0123ab
+  - name: "gRPC Trojan"
+    type: trojan
+    server: 203.0.113.40
+    port: 443
+    password: trojan-placeholder-pass
+    sni: trojan.example.org
+    network: grpc
+    grpc-opts:
+      grpc-service-name: TrojanService
+  - name: "Hy2 Node"
+    type: hysteria2
+    server: 198.51.100.50
+    port: 8443
+    password: hy2-placeholder-pass
+    sni: hy2.example.org
+    skip-cert-verify: true
+    obfs: salamander
+    obfs-password: obfs-placeholder
+    alpn:
+      - h3
+  - name: "TUIC Node"
+    type: tuic
+    server: 203.0.113.60
+    port: 443
+    uuid: 6ba7b814-9dad-11d1-80b4-00c04fd430c8
+    password: tuic-placeholder-pass
+    sni: tuic.example.org
+    congestion-controller: bbr
+    udp-relay-mode: native
+    alpn:
+      - h3
+  - name: "AnyTLS Node"
+    type: anytls
+    server: 198.51.100.70
+    port: 8443
+    password: anytls-placeholder-pass
+    sni: anytls.example.org
+  - name: "Legacy Snell"
+    type: snell
+    server: 203.0.113.80
+    port: 44046
+    psk: snell-placeholder-psk
+proxy-groups:
+  - name: auto
+    type: url-test
+    proxies: ["US Basic ⚡", "WS VMess"]
+    url: http://www.example.com/generate_204
+    interval: 300
+rules:
+  - MATCH,auto

@@ -69,7 +69,10 @@ func (p *Profile) normalize() {
 	}
 }
 
-// Subscription mirrors the Rust Subscription.
+// Subscription mirrors the Rust Subscription. Format is the body dialect the
+// refresh parses with — "auto" (or "", in pre-format files) detects; an
+// explicit value forces one parser (validated at the wire boundary, values
+// owned by internal/subscription).
 type Subscription struct {
 	ID                string    `json:"id"`
 	Name              string    `json:"name"`
@@ -78,10 +81,11 @@ type Subscription struct {
 	UpdateIntervalSec uint32    `json:"update_interval_sec"`
 	Enabled           bool      `json:"enabled"`
 	AllowInvalidCerts bool      `json:"allow_invalid_certs"`
+	Format            string    `json:"format,omitempty"`
 }
 
 // NewSubscription mirrors Rust Subscription::new: enabled, daily interval,
-// verification on.
+// verification on, format auto-detected.
 func NewSubscription(url, name string) Subscription {
 	return Subscription{
 		ID:                uuid.New(),
@@ -90,6 +94,7 @@ func NewSubscription(url, name string) Subscription {
 		LastUpdated:       time.Now().UTC(),
 		UpdateIntervalSec: 86400,
 		Enabled:           true,
+		Format:            "auto",
 	}
 }
 

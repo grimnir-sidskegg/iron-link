@@ -1,1 +1,1 @@
-{"event": "subscription_updated", "sub_id": "s1", "added": 3, "removed": 1, "total": 42}
+{"event": "subscription_updated", "sub_id": "s1", "added": 3, "removed": 1, "total": 42, "format": "xray"}

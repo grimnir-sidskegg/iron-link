@@ -46,7 +46,8 @@ final requestCases = <String, Request>{
   'requests/add_subscription.json': const AddSubscriptionRequest(
       'https://example.com/sub',
       name: 'main',
-      allowInvalidCerts: true),
+      allowInvalidCerts: true,
+      format: 'xray'),
   'requests/create_profile.json': const CreateProfileRequest('work'),
   'requests/delete_profile.json': const DeleteProfileRequest('old'),
   'requests/diagnose.json': const DiagnoseRequest('tokyo'),
@@ -73,6 +74,7 @@ final requestCases = <String, Request>{
     enabled: false,
     allowInvalidCerts: true,
     updateIntervalSec: 43200,
+    format: 'sing-box',
   ),
   'requests/select_node.json': const SelectNodeRequest('3f2a'),
   'requests/select_routing.json': const SelectRoutingRequest('basic'),
@@ -238,8 +240,17 @@ final responseCases = <String, void Function(Response)>{
   'responses/refreshed.json': (r) {
     final refreshed = (r as RefreshedResponse).refreshed;
     expect(refreshed, hasLength(3));
+    // The row that fetched carries the parse accounting…
+    expect(refreshed[0].format, 'xray');
+    expect(refreshed[0].entries, 45);
+    expect(refreshed[0].duplicates, 2);
+    expect(refreshed[0].unrecognized, 1);
+    // …skip/error rows have none — the fields default to ""/0.
     expect(refreshed[1].skipped, isTrue);
+    expect(refreshed[1].format, isEmpty);
+    expect(refreshed[1].entries, 0);
     expect(refreshed[2].error, 'fetch: status 502');
+    expect(refreshed[2].format, isEmpty);
   },
   'responses/routing.json': (r) {
     final routing = (r as RoutingResponse).routing;
@@ -252,6 +263,7 @@ final responseCases = <String, void Function(Response)>{
     expect(subs, hasLength(1));
     expect(subs[0].lastUpdated, '2026-06-10T12:00:00Z');
     expect(subs[0].nodeCount, 42);
+    expect(subs[0].format, 'auto');
   },
   'responses/settings.json': (r) {
     final s = (r as SettingsResponse).settings;
@@ -314,11 +326,13 @@ final eventCases = <String, void Function(Event)>{
     e as SubscriptionUpdatedEvent;
     expect(e.added, 3);
     expect(e.total, 42);
+    expect(e.format, 'xray');
   },
   'events/subscription_updated_zero.json': (e) {
     e as SubscriptionUpdatedEvent;
     expect(e.added, 0); // omitted zero counts default
     expect(e.total, 42);
+    expect(e.format, isEmpty); // omitted format defaults too
   },
 };
 

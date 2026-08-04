@@ -127,11 +127,11 @@ var sharedRequests = map[string]Request{
 	"set_node_prefs_pin":        {Command: CmdSetNodePrefs, Node: ptr("3f2a"), CoreOverride: ptr(CoreXray)},
 	"set_node_prefs_clear":      {Command: CmdSetNodePrefs, Node: ptr("3f2a")},
 	"list_subscriptions":        {Command: CmdListSubs},
-	"add_subscription":          {Command: CmdAddSub, URL: ptr("https://example.com/sub"), Name: ptr("main"), AllowInvalidCerts: ptr(true)},
+	"add_subscription":          {Command: CmdAddSub, URL: ptr("https://example.com/sub"), Name: ptr("main"), AllowInvalidCerts: ptr(true), Format: ptr("xray")},
 	"refresh_subscriptions_all": {Command: CmdRefreshSubs},
 	"refresh_subscriptions_one": {Command: CmdRefreshSubs, Sub: ptr("main")},
 	"remove_subscription":       {Command: CmdRemoveSub, Sub: ptr("main")},
-	"update_subscription":       {Command: CmdUpdateSub, Sub: ptr("main"), Name: ptr("Main (EU)"), URL: ptr("https://example.com/sub2"), Enabled: ptr(false), AllowInvalidCerts: ptr(true), UpdateIntervalSec: ptr(uint32(43200))},
+	"update_subscription":       {Command: CmdUpdateSub, Sub: ptr("main"), Name: ptr("Main (EU)"), URL: ptr("https://example.com/sub2"), Enabled: ptr(false), AllowInvalidCerts: ptr(true), UpdateIntervalSec: ptr(uint32(43200)), Format: ptr("sing-box")},
 	"list_routing":              {Command: CmdListRouting},
 	"select_routing":            {Command: CmdSelectRouting, Routing: ptr("basic")},
 	"get_routing":               {Command: CmdGetRouting, Routing: ptr("r1")},
@@ -279,10 +279,10 @@ var sharedResponses = map[string]Response{
 		{ID: "9b1c", Name: "osaka", Protocol: "vless", Transport: "xhttp", Security: "reality", Active: false, EligibleCores: []CoreType{CoreXray}},
 	}},
 	"subscriptions": {Status: StatusSubscriptions, Subscriptions: []SubscriptionInfo{
-		{ID: "s1", Name: "main", URL: "https://example.com/sub", Enabled: true, AllowInvalidCerts: false, LastUpdated: "2026-06-10T12:00:00Z", NodeCount: 42},
+		{ID: "s1", Name: "main", URL: "https://example.com/sub", Enabled: true, AllowInvalidCerts: false, LastUpdated: "2026-06-10T12:00:00Z", NodeCount: 42, Format: "auto"},
 	}},
 	"refreshed": {Status: StatusRefreshed, Refreshed: []RefreshInfo{
-		{Name: "main", Count: 42, Added: 2, Removed: 1},
+		{Name: "main", Count: 42, Added: 2, Removed: 1, Format: "xray", Entries: 45, Duplicates: 2, Unrecognized: 1},
 		{Name: "backup", Count: 17, Skipped: true},
 		{Name: "dead", Count: 0, Error: "fetch: status 502"},
 	}},
@@ -352,7 +352,7 @@ var sharedResponses = map[string]Response{
 }
 
 var sharedEvents = map[string]Event{
-	"subscription_updated":      {Event: EventSubscriptionUpdated, SubID: "s1", Added: 3, Removed: 1, Total: 42},
+	"subscription_updated":      {Event: EventSubscriptionUpdated, SubID: "s1", Added: 3, Removed: 1, Total: 42, Format: "xray"},
 	"subscription_updated_zero": {Event: EventSubscriptionUpdated, SubID: "s1", Total: 42},
 	"core_error":                {Event: EventCoreError, Role: ptr(RoleProxy), Stage: "start", Message: "xray: invalid config"},
 

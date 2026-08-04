@@ -1,0 +1,205 @@
+[
+  {
+    "remarks": "Auto",
+    "log": {"loglevel": "warning"},
+    "inbounds": [
+      {"tag": "socks", "port": 10808, "listen": "127.0.0.1", "protocol": "socks", "settings": {"udp": true}}
+    ],
+    "outbounds": [
+      {
+        "tag": "proxy-ams",
+        "protocol": "vless",
+        "settings": {"vnext": [{"address": "198.51.100.10", "port": 443, "users": [{"id": "00000000-0000-4000-8000-000000000001", "encryption": "none", "flow": ""}]}]},
+        "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "ams.example.com", "fingerprint": "chrome"}},
+        "mux": {"enabled": false, "concurrency": -1, "xudpConcurrency": 8, "xudpProxyUDP443": ""}
+      },
+      {
+        "tag": "proxy-fra",
+        "protocol": "vless",
+        "settings": {"vnext": [{"address": "198.51.100.11", "port": 443, "users": [{"id": "00000000-0000-4000-8000-000000000002", "encryption": "none", "flow": ""}]}]},
+        "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "fra.example.com", "fingerprint": "chrome"}}
+      },
+      {
+        "tag": "proxy-nyc",
+        "protocol": "vless",
+        "settings": {"vnext": [{"address": "198.51.100.12", "port": 443, "users": [{"id": "00000000-0000-4000-8000-000000000003", "encryption": "none", "flow": ""}]}]},
+        "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "nyc.example.com", "fingerprint": "chrome"}}
+      },
+      {"tag": "direct", "protocol": "freedom", "settings": {}},
+      {"tag": "block", "protocol": "blackhole", "settings": {}}
+    ],
+    "routing": {
+      "domainStrategy": "AsIs",
+      "balancers": [{"tag": "auto-balancer", "selector": ["proxy-"]}],
+      "rules": [{"type": "field", "network": "tcp,udp", "balancerTag": "auto-balancer"}]
+    }
+  },
+  {
+    "remarks": "Europe",
+    "outbounds": [
+      {
+        "tag": "proxy-ams",
+        "protocol": "vless",
+        "settings": {"vnext": [{"address": "198.51.100.10", "port": 443, "users": [{"id": "00000000-0000-4000-8000-000000000001", "encryption": "none", "flow": ""}]}]},
+        "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "ams.example.com", "fingerprint": "chrome"}}
+      },
+      {
+        "tag": "proxy-fra",
+        "protocol": "vless",
+        "settings": {"vnext": [{"address": "198.51.100.11", "port": 443, "users": [{"id": "00000000-0000-4000-8000-000000000002", "encryption": "none", "flow": ""}]}]},
+        "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "fra.example.com", "fingerprint": "chrome"}}
+      },
+      {
+        "tag": "proxy-vie",
+        "protocol": "vless",
+        "settings": {"vnext": [{"address": "198.51.100.13", "port": 443, "users": [{"id": "00000000-0000-4000-8000-000000000004", "encryption": "none", "flow": ""}]}]},
+        "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "vie.example.com", "fingerprint": "chrome"}}
+      },
+      {"tag": "direct", "protocol": "freedom", "settings": {}}
+    ],
+    "routing": {
+      "balancers": [{"tag": "eu-balancer", "selector": ["proxy-"]}],
+      "rules": [{"type": "field", "network": "tcp,udp", "balancerTag": "eu-balancer"}]
+    }
+  },
+  {
+    "remarks": "🇳🇱 Amsterdam 1",
+    "outbounds": [
+      {
+        "tag": "proxy",
+        "protocol": "vless",
+        "settings": {"vnext": [{"address": "198.51.100.10", "port": 443, "users": [{"id": "00000000-0000-4000-8000-000000000001", "encryption": "none", "flow": ""}]}]},
+        "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "ams.example.com", "fingerprint": "chrome"}}
+      },
+      {"tag": "direct", "protocol": "freedom", "settings": {}},
+      {"tag": "block", "protocol": "blackhole", "settings": {}}
+    ]
+  },
+  {
+    "remarks": "Frankfurt 1",
+    "outbounds": [
+      {
+        "tag": "proxy",
+        "protocol": "vless",
+        "settings": {"vnext": [{"address": "198.51.100.11", "port": 443, "users": [{"id": "00000000-0000-4000-8000-000000000002", "encryption": "none", "flow": ""}]}]},
+        "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "fra.example.com", "fingerprint": "chrome"}}
+      }
+    ]
+  },
+  {
+    "remarks": "🚀 Fast Tunnel",
+    "outbounds": [
+      {
+        "tag": "proxy",
+        "protocol": "hysteria",
+        "settings": {"address": "203.0.113.20", "port": 8443, "version": 2},
+        "streamSettings": {
+          "network": "hysteria",
+          "security": "tls",
+          "tlsSettings": {"serverName": "cdn.example.com", "alpn": ["h3"], "allowInsecure": true},
+          "hysteriaSettings": {"auth": "hy2-placeholder-auth", "version": 2},
+          "finalmask": {"tcp": [{"type": "mask", "settings": {}}], "udp": [{"type": "mask", "settings": {}}], "quicParams": {}}
+        }
+      }
+    ]
+  },
+  {
+    "remarks": "WS Rotterdam",
+    "outbounds": [
+      {
+        "tag": "proxy",
+        "protocol": "vless",
+        "settings": {"vnext": [{"address": "203.0.113.21", "port": 443, "users": [{"id": "00000000-0000-4000-8000-000000000005", "encryption": "none", "flow": ""}]}]},
+        "streamSettings": {
+          "network": "ws",
+          "security": "tls",
+          "tlsSettings": {"serverName": "ws.example.org", "fingerprint": "chrome"},
+          "wsSettings": {"path": "/ws", "headers": {"Host": "ws.example.org"}}
+        }
+      }
+    ]
+  },
+  {
+    "remarks": "Reality Vienna",
+    "outbounds": [
+      {
+        "tag": "proxy",
+        "protocol": "vless",
+        "settings": {"vnext": [{"address": "203.0.113.22", "port": 443, "users": [{"id": "00000000-0000-4000-8000-000000000006", "encryption": "none", "flow": "xtls-rprx-vision"}]}]},
+        "streamSettings": {
+          "network": "tcp",
+          "security": "reality",
+          "realitySettings": {"serverName": "www.example.com", "fingerprint": "chrome", "publicKey": "xray-reality-pbk-placeholder", "shortId": "01ab", "spiderX": "/"}
+        }
+      }
+    ]
+  },
+  {
+    "remarks": "Osaka",
+    "outbounds": [
+      {
+        "tag": "proxy",
+        "protocol": "vmess",
+        "settings": {"vnext": [{"address": "203.0.113.30", "port": 443, "users": [{"id": "00000000-0000-4000-8000-000000000007", "alterId": 0, "security": "auto"}]}]},
+        "streamSettings": {
+          "network": "ws",
+          "security": "tls",
+          "tlsSettings": {"serverName": "osaka.example.com", "fingerprint": "chrome"},
+          "wsSettings": {"path": "/vm", "host": "osaka.example.com"}
+        }
+      }
+    ]
+  },
+  {
+    "remarks": "Warsaw",
+    "outbounds": [
+      {
+        "tag": "proxy",
+        "protocol": "trojan",
+        "settings": {"servers": [{"address": "203.0.113.31", "port": 443, "password": "trojan-placeholder-pass"}]},
+        "streamSettings": {
+          "network": "grpc",
+          "security": "tls",
+          "tlsSettings": {"serverName": "warsaw.example.com"},
+          "grpcSettings": {"serviceName": "TrojanService"}
+        }
+      }
+    ]
+  },
+  {
+    "remarks": "Cairo",
+    "outbounds": [
+      {
+        "tag": "proxy",
+        "protocol": "shadowsocks",
+        "settings": {"servers": [{"address": "203.0.113.32", "port": 8388, "method": "aes-256-gcm", "password": "ss-placeholder-pass"}]}
+      }
+    ]
+  },
+  {
+    "remarks": "Legacy Hy1",
+    "outbounds": [
+      {
+        "tag": "proxy",
+        "protocol": "hysteria",
+        "settings": {"address": "203.0.113.23", "port": 9443, "version": 1},
+        "streamSettings": {
+          "network": "hysteria",
+          "security": "tls",
+          "tlsSettings": {"serverName": "legacy.example.com", "alpn": ["hysteria"]},
+          "hysteriaSettings": {"auth": "hy1-placeholder-auth", "version": 1}
+        }
+      }
+    ]
+  },
+  {
+    "remarks": "Experimental WG",
+    "outbounds": [
+      {
+        "tag": "wg",
+        "protocol": "wireguard",
+        "settings": {"secretKey": "wg-placeholder-secret", "address": ["192.0.2.2/32"], "peers": [{"endpoint": "203.0.113.40:51820", "publicKey": "wg-placeholder-pubkey"}]}
+      }
+    ]
+  }
+]

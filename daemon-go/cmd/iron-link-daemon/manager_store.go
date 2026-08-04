@@ -238,6 +238,10 @@ func (m *manager) listSubscriptions(req api.Request) api.Response {
 				count++
 			}
 		}
+		format, err := subscription.ParseFormat(s.Format)
+		if err != nil {
+			format = subscription.FormatAuto
+		}
 		infos = append(infos, api.SubscriptionInfo{
 			ID:                s.ID,
 			Name:              s.Name,
@@ -246,6 +250,7 @@ func (m *manager) listSubscriptions(req api.Request) api.Response {
 			AllowInvalidCerts: s.AllowInvalidCerts,
 			LastUpdated:       s.LastUpdated.Format(time.RFC3339),
 			NodeCount:         count,
+			Format:            string(format),
 		})
 	}
 	return api.Response{Status: api.StatusSubscriptions, Subscriptions: infos}
@@ -268,10 +273,22 @@ func (m *manager) addSubscription(req api.Request) api.Response {
 		}
 	}
 
+	var format subscription.Format
+	if req.Format != nil {
+		f, err := subscription.ParseFormat(*req.Format)
+		if err != nil {
+			return errResp(err.Error())
+		}
+		format = f
+	}
+
 	return m.withProfile(req, func(profName string, p *store.Profile) (api.Response, error) {
 		sub := store.NewSubscription(*req.URL, name)
 		if req.AllowInvalidCerts != nil {
 			sub.AllowInvalidCerts = *req.AllowInvalidCerts
+		}
+		if format != "" {
+			sub.Format = string(format)
 		}
 		subID, err := p.AddSubscription(sub)
 		if err != nil {
@@ -345,6 +362,13 @@ func (m *manager) updateSubscription(req api.Request) api.Response {
 		}
 		if req.UpdateIntervalSec != nil {
 			sub.UpdateIntervalSec = *req.UpdateIntervalSec
+		}
+		if req.Format != nil {
+			f, err := subscription.ParseFormat(*req.Format)
+			if err != nil {
+				return api.Response{}, err
+			}
+			sub.Format = string(f)
 		}
 		return api.Response{Status: api.StatusOk,
 			Message: "subscription updated: " + sub.Name}, nil
@@ -473,11 +497,14 @@ func (m *manager) publishRefreshLocked(results []subscription.Result) []api.Refr
 		infos = append(infos, api.RefreshInfo{
 			Name: r.Name, Count: r.Count, Added: r.Added, Removed: r.Removed,
 			Skipped: r.Skipped, Error: r.Err,
+			Format: r.Format, Entries: r.Entries,
+			Duplicates: r.Duplicates, Unrecognized: r.Unrecognized,
 		})
 		if r.Err == "" && !r.Skipped && m.hub != nil {
 			m.hub.Broadcast(api.Event{
 				Event: api.EventSubscriptionUpdated,
 				SubID: r.SubID, Added: r.Added, Removed: r.Removed, Total: r.Count,
+				Format: r.Format,
 			})
 		}
 	}
