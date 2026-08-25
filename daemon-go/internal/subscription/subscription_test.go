@@ -260,6 +260,137 @@ func TestRefreshZeroNodesIsFailure(t *testing.T) {
 	}
 }
 
+// TestRefreshPreservesUUIDAndActiveNode is the stable-UUID reconcile: a no-op
+// refresh (the server returns the SAME endpoints) keeps every node's UUID, so
+// active_node_id stays valid and never resets to nodes[0]. The pre-fix
+// delete+re-add minted fresh uuids, dangling active_node_id.
+func TestRefreshPreservesUUIDAndActiveNode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, linkA+"\n"+linkB)
+	}))
+	defer srv.Close()
+
+	p := store.NewProfile("t")
+	subID, err := p.AddSubscription(store.NewSubscription(srv.URL, "live"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two existing subscription nodes matching the two links, but under DIFFERENT
+	// display names — reconcile matches by prefsKey (stream+credential+endpoint),
+	// not by name, so the UUID still carries.
+	a, _ := proxy.ParseURL(strings.Replace(linkA, "#node-a", "#a-old", 1))
+	b, _ := proxy.ParseURL(strings.Replace(linkB, "#node-b", "#b-old", 1))
+	nodeA := store.NewNode(a.(*proxy.VlessConfig), &subID)
+	nodeB := store.NewNode(b.(*proxy.VlessConfig), &subID)
+	p.Nodes = append(p.Nodes, nodeA, nodeB)
+	// Pin the active node to the SECOND node, so a reset-to-nodes[0] regression
+	// would be visible (nodes[0] is nodeA).
+	if err := p.SetActiveNode(nodeB.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	results := Refresh(context.Background(), p, "", "")
+	if len(results) != 1 || results[0].Err != "" {
+		t.Fatalf("refresh: %+v", results)
+	}
+	if results[0].Added != 0 || results[0].Removed != 0 {
+		t.Errorf("no-op refresh must add/remove nothing: added=%d removed=%d",
+			results[0].Added, results[0].Removed)
+	}
+	if len(p.Nodes) != 2 {
+		t.Fatalf("nodes = %d, want 2", len(p.Nodes))
+	}
+	// active_node_id still points at the SAME node — not cleared, not reset.
+	if p.ActiveNodeID == nil || *p.ActiveNodeID != nodeB.ID {
+		t.Fatalf("active_node_id = %v, want %s (preserved across refresh)", p.ActiveNodeID, nodeB.ID)
+	}
+	if p.ActiveNode() == nil {
+		t.Fatal("active node must resolve after the refresh")
+	}
+	// Both original UUIDs survived (matched, not re-minted).
+	if p.FindNodeByID(nodeA.ID) == nil || p.FindNodeByID(nodeB.ID) == nil {
+		t.Error("both node UUIDs must survive a no-op refresh")
+	}
+	// The refreshed node also picked up the fresh display name.
+	if p.FindNodeByName("node-a") == nil || p.FindNodeByName("node-b") == nil {
+		t.Error("refreshed nodes must carry the new display names")
+	}
+}
+
+// TestRefreshNewAndRemovedNodes: a link present only in the refresh is a NEW
+// node with a fresh uuid (nothing to carry); a previously-stored node absent
+// from the refresh is dropped.
+func TestRefreshNewAndRemovedNodes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, linkA+"\n"+linkB) // linkA survives, linkB is new
+	}))
+	defer srv.Close()
+
+	p := store.NewProfile("t")
+	subID, err := p.AddSubscription(store.NewSubscription(srv.URL, "live"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const linkC = "vless://cccccccc-a8e3-49f4-89b9-b3b54f1cad3a@203.0.113.9:443#gone"
+	a, _ := proxy.ParseURL(linkA)
+	c, _ := proxy.ParseURL(linkC)
+	survivor := store.NewNode(a.(*proxy.VlessConfig), &subID)
+	doomed := store.NewNode(c.(*proxy.VlessConfig), &subID)
+	p.Nodes = append(p.Nodes, survivor, doomed)
+
+	results := Refresh(context.Background(), p, "", "")
+	if len(results) != 1 || results[0].Err != "" {
+		t.Fatalf("refresh: %+v", results)
+	}
+	if results[0].Added != 1 || results[0].Removed != 1 {
+		t.Errorf("diff = added %d / removed %d, want 1/1", results[0].Added, results[0].Removed)
+	}
+	if p.FindNodeByID(survivor.ID) == nil {
+		t.Error("the surviving node must keep its uuid")
+	}
+	if p.FindNodeByID(doomed.ID) != nil {
+		t.Error("the removed node must be dropped")
+	}
+	fresh := p.FindNodeByName("node-b")
+	if fresh == nil {
+		t.Fatal("the genuinely-new node must be present")
+	}
+	if fresh.ID == survivor.ID || fresh.ID == doomed.ID {
+		t.Errorf("a new node must get a fresh uuid, got %s", fresh.ID)
+	}
+}
+
+// TestParseDistinguishesTransportAndSecurity locks the over-collapse fix: two
+// nodes sharing server:port:credential but differing only in transport — or
+// only in security — are DISTINCT (prefsKey now includes the stable stream
+// shape), where they used to dedup into one and one was lost.
+func TestParseDistinguishesTransportAndSecurity(t *testing.T) {
+	// Same endpoint+uuid, transport xhttp vs ws.
+	ws := strings.Replace(strings.Replace(linkA, "type=xhttp", "type=ws", 1), "#node-a", "#node-a-ws", 1)
+	if o, err := Parse(linkA+"\n"+ws, "s", FormatAuto); err != nil {
+		t.Fatal(err)
+	} else if len(o.Nodes) != 2 || o.Duplicates != 0 {
+		t.Errorf("transport-differing nodes: nodes=%d dups=%d, want 2/0", len(o.Nodes), o.Duplicates)
+	}
+
+	// Same endpoint+uuid, security none vs tls.
+	tlsLink := "vless://99f2c0dc-a8e3-49f4-89b9-b3b54f1cad3a@203.0.113.2:443?security=tls&sni=b.example.com&fp=chrome#node-b-tls"
+	if o, err := Parse(linkB+"\n"+tlsLink, "s", FormatAuto); err != nil {
+		t.Fatal(err)
+	} else if len(o.Nodes) != 2 || o.Duplicates != 0 {
+		t.Errorf("security-differing nodes: nodes=%d dups=%d, want 2/0", len(o.Nodes), o.Duplicates)
+	}
+
+	// Control: an identical stream under a different name STILL dedups (the key
+	// did not get too strict).
+	same := strings.Replace(linkA, "#node-a", "#node-a-copy", 1)
+	if o, err := Parse(linkA+"\n"+same, "s", FormatAuto); err != nil {
+		t.Fatal(err)
+	} else if len(o.Nodes) != 1 || o.Duplicates != 1 {
+		t.Errorf("identical stream must still dedup: nodes=%d dups=%d, want 1/1", len(o.Nodes), o.Duplicates)
+	}
+}
+
 func TestRefreshOnlyTargetsOneEvenDisabled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, linkA)

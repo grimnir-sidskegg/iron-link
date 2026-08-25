@@ -178,9 +178,12 @@ func TestNodeSocksConfigsStart(t *testing.T) {
 	sess.Close()
 }
 
+// namedNode builds a plan member whose UUID tag and display name are both the
+// given string, so a plan whose ActiveTag is that string still validates (the
+// member tag is the ID). Tests that need distinct id/name override .ID after.
 func namedNode(name, addr string, security ilproxy.Security, transport ilproxy.Transport) NamedNode {
 	v := testVless(security, transport, "")
 	v.ServerName = name
 	v.Address = addr
-	return NamedNode{Name: name, Profile: v}
+	return NamedNode{ID: name, Name: name, Profile: v}
 }

@@ -34,13 +34,16 @@ func (p *SessionPlan) resolveTarget(t routing.RuleTarget) (string, error) {
 	case routing.TargetDpiBypass:
 		return "", fmt.Errorf("DpiBypass routing target: the byedpi integration has not landed in the Go daemon yet")
 	case routing.TargetNode:
+		// The selector member / outbound tag IS the node UUID, and a rule's
+		// Node target already carries that UUID — return it as the tag once we
+		// confirm the node is embedded.
 		for i := range p.Natives {
 			if p.Natives[i].ID == t.Node {
-				return p.Natives[i].Name, nil
+				return p.Natives[i].ID, nil
 			}
 		}
 		if p.XrayNode != nil && p.XrayNode.ID == t.Node {
-			return p.XrayNode.Name, nil
+			return p.XrayNode.ID, nil
 		}
 		return "", fmt.Errorf("routing target node %s is not embedded in this session (only selector members can be rule targets)", t.Node)
 	default:

@@ -99,10 +99,51 @@ func TestPlanValidation(t *testing.T) {
 	if _, _, err := PlanSocksConfigs(p, "127.0.0.1", 1080); err == nil {
 		t.Error("active tag outside the member set must be rejected")
 	}
+	// Duplicate display NAMES are allowed now (a pure label); duplicate member
+	// tags (UUIDs) are what must be rejected.
 	p = twoNativePlan()
-	p.Natives[1].Name = "node-a"
+	p.Natives[1].ID = p.Natives[0].ID
 	if _, _, err := PlanSocksConfigs(p, "127.0.0.1", 1080); err == nil {
-		t.Error("duplicate member names must be rejected")
+		t.Error("duplicate member ids must be rejected")
+	}
+}
+
+// TestPlanDuplicateDisplayNamesActivate: two members sharing a display name are
+// DISTINCT selector members (tagged by their UUIDs), so the plan compiles, the
+// real cores start, and BOTH are live-switchable — a display name is a pure
+// label that MAY collide (no "duplicate node name" rejection). The name↔tag
+// resolvers used at the wire boundary round-trip correctly.
+func TestPlanDuplicateDisplayNamesActivate(t *testing.T) {
+	p := twoNativePlan()
+	p.Natives[0].Name, p.Natives[1].Name = "same", "same"
+	p.Natives[0].ID = "aaaaaaaa-0000-4000-8000-000000000001"
+	p.Natives[1].ID = "bbbbbbbb-0000-4000-8000-000000000002"
+	p.ActiveTag = p.Natives[0].ID
+
+	sbCfg, xrayCfg, err := PlanSocksConfigs(p, "127.0.0.1", freePort(t))
+	if err != nil {
+		t.Fatalf("colliding display names must still compile: %v", err)
+	}
+	sess, err := Start(sbCfg, xrayCfg)
+	if err != nil {
+		t.Fatalf("Start with colliding display names: %v", err)
+	}
+	defer sess.Close()
+
+	if now, ok := sess.SelectedOutbound(); !ok || now != p.Natives[0].ID {
+		t.Errorf("default member = %q,%v; want %s", now, ok, p.Natives[0].ID)
+	}
+	if err := sess.SelectOutbound(p.Natives[1].ID); err != nil {
+		t.Fatalf("the second same-named member must be live-switchable: %v", err)
+	}
+
+	// The wire-boundary resolvers: a shared name maps to the first member's tag,
+	// and each tag maps back to the shared display name.
+	if tag, ok := p.MemberTagForName("same"); !ok || tag != p.Natives[0].ID {
+		t.Errorf("MemberTagForName(same) = %q,%v; want %s,true", tag, ok, p.Natives[0].ID)
+	}
+	if name, ok := p.DisplayNameForTag(p.Natives[1].ID); !ok || name != "same" {
+		t.Errorf("DisplayNameForTag = %q,%v; want same,true", name, ok)
 	}
 }
 

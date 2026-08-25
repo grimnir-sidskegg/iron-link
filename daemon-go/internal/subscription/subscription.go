@@ -77,7 +77,7 @@ type Result struct {
 	SubID string
 	Name  string
 	// Count is the new node count; Added/Removed the diff vs the previous set
-	// (matched by uuid+address+port) — all valid when the refresh succeeded.
+	// (matched by prefsKey) — all valid when the refresh succeeded.
 	Count   int
 	Added   int
 	Removed int
@@ -94,10 +94,10 @@ type Result struct {
 }
 
 // Refresh re-fetches subscriptions in p and replaces their nodes, carrying
-// each node's per-node core override across the refresh (matched by
-// uuid+address+port — the Rust `preserve-node-prefs` port). Mutates p in
-// place; THE CALLER PERSISTS. One subscription's failure is reported in its
-// Result and does not abort the others.
+// each surviving node's STABLE UUID and its per-node core override across the
+// refresh (matched by prefsKey — protocol+credential+endpoint+stream). Mutates
+// p in place; THE CALLER PERSISTS. One subscription's failure is reported in
+// its Result and does not abort the others.
 //
 // only == "" sweeps every ENABLED subscription; a non-empty only (id or name)
 // refreshes exactly that subscription even when disabled — an explicit
@@ -135,7 +135,7 @@ func Refresh(ctx context.Context, p *store.Profile, only, ua string) []Result {
 			continue
 		}
 		newNodes := outcome.Nodes
-		carryPrefs(p, sub.ID, newNodes)
+		reconcile(p, sub.ID, newNodes)
 		added, removed := diffNodes(p, sub.ID, newNodes)
 
 		p.ReplaceSubscriptionNodes(sub.ID, newNodes)
@@ -153,7 +153,7 @@ func Refresh(ctx context.Context, p *store.Profile, only, ua string) []Result {
 }
 
 // diffNodes counts the identity changes a replace will make (matched by
-// uuid+address+port), for the SubscriptionUpdated event.
+// prefsKey), for the SubscriptionUpdated event.
 func diffNodes(p *store.Profile, subID string, newNodes []store.Node) (added, removed int) {
 	old := map[prefsKey]bool{}
 	for i := range p.Nodes {
@@ -179,34 +179,64 @@ func diffNodes(p *store.Profile, subID string, newNodes []store.Node) (added, re
 }
 
 // prefsKey identifies "the same node" across refreshes — the protocol, the
-// credential (uuid/password), and the endpoint. Protocol-agnostic so a
-// subscription mixing schemes diffs correctly.
+// credential (uuid/password), the endpoint, and the STREAM shape (transport +
+// security). Protocol-agnostic so a subscription mixing schemes diffs
+// correctly. The transport/security components are stable TYPE labels
+// ("xhttp"/"tcp"/"grpc"/"ws", "reality"/"tls"/"none") — never the rotating
+// reality keys/short-id/SNI — so a param rotation still matches the same node,
+// yet two nodes sharing server:port:credential but differing in transport or
+// security stay DISTINCT (they are genuinely different endpoints, not one to
+// collapse).
 type prefsKey struct {
-	kind     proxy.Protocol
-	identity string
-	address  string
-	port     uint16
+	kind      proxy.Protocol
+	identity  string
+	address   string
+	port      uint16
+	transport string
+	security  string
 }
 
 // profileKey builds the refresh-diff key for a node's profile.
 func profileKey(p proxy.Profile) prefsKey {
-	return prefsKey{p.Kind(), p.Identity(), p.ServerAddress(), p.ServerPort()}
+	return prefsKey{
+		kind:      p.Kind(),
+		identity:  p.Identity(),
+		address:   p.ServerAddress(),
+		port:      p.ServerPort(),
+		transport: p.TransportLabel(),
+		security:  p.SecurityLabel(),
+	}
 }
 
-// carryPrefs copies each existing node's core override onto its replacement.
-// Nodes that let selection decide stay on auto.
-func carryPrefs(p *store.Profile, subID string, newNodes []store.Node) {
-	saved := map[prefsKey]api.CoreType{}
+// reconcile carries each surviving node's STABLE identity across a refresh: its
+// UUID (so active_node_id and routing-rule targets keep resolving with no
+// churn) and its per-node core override. "The same node" is a prefsKey match
+// against the OLD p.Nodes, so it MUST run before ReplaceSubscriptionNodes
+// swaps them out. A node still present after the refresh keeps its UUID; a
+// genuinely new node keeps the fresh NewNode uuid it was minted with; a removed
+// node simply is not in the new set. Nodes that let selection decide stay on
+// auto.
+func reconcile(p *store.Profile, subID string, newNodes []store.Node) {
+	type identity struct {
+		id   string
+		core *api.CoreType
+	}
+	prev := map[prefsKey]identity{}
 	for i := range p.Nodes {
 		n := &p.Nodes[i]
-		if n.SubID == nil || *n.SubID != subID || n.Preferences.CoreOverride == nil {
+		if n.SubID == nil || *n.SubID != subID {
 			continue
 		}
-		saved[profileKey(n.Profile())] = *n.Preferences.CoreOverride
+		prev[profileKey(n.Profile())] = identity{id: n.ID, core: n.Preferences.CoreOverride}
 	}
 	for i := range newNodes {
-		if core, ok := saved[profileKey(newNodes[i].Profile())]; ok {
-			c := core
+		saved, ok := prev[profileKey(newNodes[i].Profile())]
+		if !ok {
+			continue
+		}
+		newNodes[i].ID = saved.id
+		if saved.core != nil {
+			c := *saved.core
 			newNodes[i].Preferences.CoreOverride = &c
 		}
 	}

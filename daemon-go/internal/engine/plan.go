@@ -1,9 +1,13 @@
 // Multi-node session compilation (GO_DAEMON_PLAN.md §5): ALL of a profile's
 // sing-box-eligible nodes become native selector members (live switch); when
 // the ACTIVE node is xray-routed it joins the selector as the xray-reality
-// outbound carrying ITS name, backed by the one xray instance compiled for it.
-// Members are tagged with node display names, so the wire's SwitchNode target,
-// the selector member, and the store node are the same identifier.
+// outbound backed by the one xray instance compiled for it.
+//
+// Members are tagged with the stable node UUID (NamedNode.ID) — NOT the display
+// name, which may collide. The wire keeps addressing nodes by display name; the
+// manager resolves that to the UUID tag (MemberTagForName) on the way in and
+// maps the selector's live tag back to a display name (DisplayNameForTag) on
+// the way out, so the client-facing contract is unchanged.
 
 package engine
 
@@ -27,9 +31,10 @@ import (
 // SelectorTag is the selector outbound's tag — the route final.
 const SelectorTag = "proxy"
 
-// NamedNode pairs a node's display name (its outbound tag) with its profile.
-// ID is the store node id — routing rules address nodes by id
-// (RuleTarget::Node), so the compiler needs the mapping.
+// NamedNode pairs a node's stable identity with its profile. ID is the store
+// node UUID and IS the selector member / outbound tag — routing rules address
+// nodes by id (RuleTarget::Node), and the tag must be unique. Name is the
+// display label reported to the client (it MAY collide across nodes).
 type NamedNode struct {
 	ID      string
 	Name    string
@@ -62,23 +67,53 @@ type SessionPlan struct {
 	Tunables *Tunables
 }
 
-// memberTags lists the selector members: every native node, plus the active
-// xray node (its member IS the xray-reality outbound bearing its name).
+// memberTags lists the selector members by their UUID tag: every native node,
+// plus the active xray node (its member IS the xray-reality outbound).
 func (p *SessionPlan) memberTags() []string {
 	tags := make([]string, 0, len(p.Natives)+1)
 	for _, n := range p.Natives {
-		tags = append(tags, n.Name)
+		tags = append(tags, n.ID)
 	}
 	if p.XrayNode != nil {
-		tags = append(tags, p.XrayNode.Name)
+		tags = append(tags, p.XrayNode.ID)
 	}
 	return tags
 }
 
-// IsMember reports whether tag names an embedded selector member (i.e. a
-// SwitchNode target reachable WITHOUT re-activation).
+// IsMember reports whether tag (a node UUID) names an embedded selector member
+// (i.e. a SwitchNode target reachable WITHOUT re-activation).
 func (p *SessionPlan) IsMember(tag string) bool {
 	return slices.Contains(p.memberTags(), tag)
+}
+
+// MemberTagForName resolves a client-facing display name to the embedded
+// member's UUID tag (the wire addresses nodes by display name). The first
+// member with that name wins when names collide; ok=false when none matches.
+func (p *SessionPlan) MemberTagForName(name string) (tag string, ok bool) {
+	for i := range p.Natives {
+		if p.Natives[i].Name == name {
+			return p.Natives[i].ID, true
+		}
+	}
+	if p.XrayNode != nil && p.XrayNode.Name == name {
+		return p.XrayNode.ID, true
+	}
+	return "", false
+}
+
+// DisplayNameForTag maps a selector member's UUID tag back to its display name
+// — the reverse of MemberTagForName, so a live tag read from the selector is
+// reported to the client as the same name it was activated under.
+func (p *SessionPlan) DisplayNameForTag(tag string) (name string, ok bool) {
+	for i := range p.Natives {
+		if p.Natives[i].ID == tag {
+			return p.Natives[i].Name, true
+		}
+	}
+	if p.XrayNode != nil && p.XrayNode.ID == tag {
+		return p.XrayNode.Name, true
+	}
+	return "", false
 }
 
 func (p *SessionPlan) validate() error {
@@ -92,7 +127,7 @@ func (p *SessionPlan) validate() error {
 	seen := map[string]bool{}
 	for _, tag := range members {
 		if seen[tag] {
-			return fmt.Errorf("duplicate node name %q — selector members must be unique", tag)
+			return fmt.Errorf("duplicate node id %q — selector members must be unique", tag)
 		}
 		seen[tag] = true
 	}
@@ -114,14 +149,14 @@ func (p *SessionPlan) planOutbounds() ([]any, error) {
 	}
 	outbounds := []any{selector}
 	for _, n := range p.Natives {
-		ob, err := n.Profile.SingBoxOutbound(n.Name)
+		ob, err := n.Profile.SingBoxOutbound(n.ID)
 		if err != nil {
 			return nil, fmt.Errorf("native outbound %q: %w", n.Name, err)
 		}
 		outbounds = append(outbounds, ob)
 	}
 	if p.XrayNode != nil {
-		outbounds = append(outbounds, map[string]any{"type": OutboundType, "tag": p.XrayNode.Name})
+		outbounds = append(outbounds, map[string]any{"type": OutboundType, "tag": p.XrayNode.ID})
 	}
 	outbounds = append(outbounds,
 		map[string]any{"type": "direct", "tag": "direct"},

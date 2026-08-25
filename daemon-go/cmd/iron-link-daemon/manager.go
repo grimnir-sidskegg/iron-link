@@ -370,7 +370,9 @@ func (m *manager) saveLastSessionLocked() {
 // selection fails the activation.
 func buildPlan(prof *store.Profile, active *store.Node) (engine.SessionPlan, error) {
 	var plan engine.SessionPlan
-	plan.ActiveTag = active.DisplayName()
+	// Selector member tags are the stable node UUIDs (DisplayName may collide),
+	// so the active default is addressed by id too.
+	plan.ActiveTag = active.ID
 
 	for i := range prof.Nodes {
 		n := &prof.Nodes[i]
@@ -664,9 +666,14 @@ func (m *manager) status() api.Response {
 	}
 	// The live node comes from the IN-PROCESS selector (no Clash
 	// API); single-node sessions have no selector, so the activated node is
-	// the live node by construction.
+	// the live node by construction. The selector tag is the node UUID; map it
+	// BACK to the client-facing display name so the wire behaves as before.
 	if live, ok := m.sess.SelectedOutbound(); ok {
-		resp.ActiveNodeLive = &live
+		if name, ok := m.plan.DisplayNameForTag(live); ok {
+			resp.ActiveNodeLive = &name
+		} else {
+			resp.ActiveNodeLive = &live
+		}
 	} else if m.active != nil {
 		resp.ActiveNodeLive = m.active.Node
 	}
@@ -689,8 +696,10 @@ func (m *manager) switchNode(req api.Request) api.Response {
 		return errResp("nothing is running; use activate")
 	}
 
-	if m.plan.IsMember(target) {
-		if err := m.sess.SelectOutbound(target); err != nil {
+	// The wire addresses nodes by display name; resolve it to the member's UUID
+	// tag (the selector's internal identifier) before the live select.
+	if tag, ok := m.plan.MemberTagForName(target); ok {
+		if err := m.sess.SelectOutbound(tag); err != nil {
 			m.mu.Unlock()
 			return errResp("live select: " + err.Error())
 		}

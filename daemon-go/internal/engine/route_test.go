@@ -13,12 +13,13 @@ import (
 	"ironlink/daemon/internal/routing"
 )
 
-// xrayOnlyPlan: one xhttp member (xray-routed) so tests run untagged.
+// xrayOnlyPlan: one xhttp member (xray-routed) so tests run untagged. The
+// member tag is the node UUID, so ActiveTag is the id (not the display name).
 func xrayOnlyPlan() SessionPlan {
 	node := namedNode("node-x", "203.0.113.9", testReality(),
 		ilproxy.Transport{Kind: ilproxy.TransportXhttp, Xhttp: &ilproxy.XhttpParams{}})
 	node.ID = "9e000000-0000-4000-8000-000000000009"
-	return SessionPlan{XrayNode: &node, ActiveTag: "node-x"}
+	return SessionPlan{XrayNode: &node, ActiveTag: node.ID}
 }
 
 // realShapedRouting mirrors the live "basic" config: legacy null conditions,
@@ -80,8 +81,8 @@ func TestRouteCompileRealShape(t *testing.T) {
 		t.Error("null stored conditions must be stripped from the compiled rule")
 	}
 
-	if got := dig(t, rules[2], "outbound"); got != "node-x" {
-		t.Errorf("Node target must resolve to the member tag, got %v", got)
+	if got := dig(t, rules[2], "outbound"); got != "9e000000-0000-4000-8000-000000000009" {
+		t.Errorf("Node target must resolve to the member's UUID tag, got %v", got)
 	}
 	if got := dig(t, rules[3], "outbound"); got != "block" {
 		t.Errorf("Block target → %v, want block", got)
