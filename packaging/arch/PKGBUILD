@@ -13,7 +13,7 @@
 
 _pkgname=iron-link
 pkgname=iron-link-git
-pkgver=0.1.0.alpha.1.r89.gbeb3f37
+pkgver=0.1.0.r1.gb343ad1
 pkgrel=1
 pkgdesc="Proxy/VPN orchestrator with embedded sing-box + xray (Go daemon + Flutter client)"
 arch=('x86_64')
