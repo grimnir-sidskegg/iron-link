@@ -10,11 +10,28 @@ package engine
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
 	"ironlink/daemon/internal/proxy"
 )
+
+// singleNodeTag is the xray outbound tag — and the dispatch node id — for the
+// single-node client config CompileXrayClient builds. Kept as "proxy", the tag
+// the node outbound has always carried, so the produced config is unchanged bar
+// the added inboundTag rule. The backend sets ContextWithInbound{Tag:
+// singleNodeTag} to reach this node; because the node outbound is also declared
+// FIRST (xray's default), a dispatch with no/an-unmatched inbound tag still
+// reaches it, keeping every existing single-node caller working.
+const singleNodeTag = "proxy"
+
+// xrayClientNode pairs a node's dispatch id (its xray outbound tag and the key
+// of its inboundTag->outboundTag rule) with the profile that dials it.
+type xrayClientNode struct {
+	ID      string
+	Profile proxy.Profile
+}
 
 // xrayLogLevel is the embedded xray instance's log level. Default "warning"
 // (quiet); set IRON_LINK_XRAY_LOGLEVEL=debug to make xray log every dial — used
@@ -44,23 +61,68 @@ func xrayLogLevel() string {
 //     outbound — never through the OS resolver, whose unmarked sockets the TUN
 //     would re-capture (the strict_route deadlock).
 func CompileXrayClient(p proxy.Profile, stubListen string) ([]byte, error) {
-	ob, ok, err := p.XrayOutbound()
-	if err != nil {
-		return nil, err
+	return compileXrayClientNodes([]xrayClientNode{{ID: singleNodeTag, Profile: p}}, stubListen)
+}
+
+// compileXrayClientNodes is the generalized compiler: it hosts N nodes in one
+// xray client config. For each node it emits a uniquely-tagged outbound (tag ==
+// node.ID) plus an inboundTag->outboundTag routing rule keyed on that same id,
+// so a dispatch carrying ContextWithInbound{Tag: node.ID} egresses through that
+// node. The FIRST node's outbound is declared first, making it xray's default
+// (a no/unmatched-inbound-tag dispatch still reaches it) — which is why the
+// single-node CompileXrayClient path is behaviour-preserving.
+//
+// The shared scaffolding is unchanged from the single-node config: xray's own
+// dns (queryStrategy UseIPv4, servers 1.1.1.1/8.8.8.8) with the dns-internal ->
+// direct rule kept FIRST in the rule list, a marked direct freedom outbound, and
+// the mandatory stub socks inbound. Each node outbound carries sockopt.mark (the
+// own-output fwmark the auto_redirect TUN skips) and domainStrategy UseIP (xray
+// resolves node domains through its own dns, never the OS resolver the TUN would
+// re-capture).
+func compileXrayClientNodes(nodes []xrayClientNode, stubListen string) ([]byte, error) {
+	if len(nodes) == 0 {
+		return nil, errors.New("xray client config needs at least one node")
 	}
-	if !ok {
-		return nil, fmt.Errorf("xray cannot dial %s nodes", p.Kind())
+	outbounds := make([]any, 0, len(nodes)+1)
+	// dns-internal -> direct stays rules[0] (the own-dns invariant compile_test
+	// locks); per-node rules follow. The inbound tags are disjoint, so order
+	// among them is immaterial.
+	rules := []any{map[string]any{
+		"inboundTag":  []any{"dns-internal"},
+		"outboundTag": "direct",
+	}}
+	for _, n := range nodes {
+		ob, ok, err := n.Profile.XrayOutbound()
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, fmt.Errorf("xray cannot dial %s nodes", n.Profile.Kind())
+		}
+		ob["tag"] = n.ID
+		stream, _ := ob["streamSettings"].(map[string]any)
+		if stream == nil {
+			stream = map[string]any{}
+			ob["streamSettings"] = stream
+		}
+		stream["sockopt"] = map[string]any{
+			"mark":           AutoRedirectOutputMark,
+			"domainStrategy": "UseIP",
+		}
+		outbounds = append(outbounds, ob)
+		rules = append(rules, map[string]any{
+			"inboundTag":  []any{n.ID},
+			"outboundTag": n.ID,
+		})
 	}
-	ob["tag"] = "proxy"
-	stream, _ := ob["streamSettings"].(map[string]any)
-	if stream == nil {
-		stream = map[string]any{}
-		ob["streamSettings"] = stream
-	}
-	stream["sockopt"] = map[string]any{
-		"mark":           AutoRedirectOutputMark,
-		"domainStrategy": "UseIP",
-	}
+	outbounds = append(outbounds, map[string]any{
+		"tag":      "direct",
+		"protocol": "freedom",
+		"settings": map[string]any{"domainStrategy": "UseIP"},
+		"streamSettings": map[string]any{
+			"sockopt": map[string]any{"mark": AutoRedirectOutputMark},
+		},
+	})
 
 	cfg := map[string]any{
 		"log": map[string]any{"loglevel": xrayLogLevel()},
@@ -74,23 +136,10 @@ func CompileXrayClient(p proxy.Profile, stubListen string) ([]byte, error) {
 			"protocol": "socks",
 			"settings": map[string]any{"udp": false},
 		}},
-		"outbounds": []any{
-			ob,
-			map[string]any{
-				"tag":      "direct",
-				"protocol": "freedom",
-				"settings": map[string]any{"domainStrategy": "UseIP"},
-				"streamSettings": map[string]any{
-					"sockopt": map[string]any{"mark": AutoRedirectOutputMark},
-				},
-			},
-		},
+		"outbounds": outbounds,
 		"routing": map[string]any{
 			"domainStrategy": "AsIs",
-			"rules": []any{map[string]any{
-				"inboundTag":  []any{"dns-internal"},
-				"outboundTag": "direct",
-			}},
+			"rules":          rules,
 		},
 	}
 	return json.Marshal(cfg)

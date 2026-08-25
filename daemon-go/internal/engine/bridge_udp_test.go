@@ -51,7 +51,7 @@ func TestRealNodeUDPDNS(t *testing.T) {
 // outbound's packet path and asserts a matching response arrives.
 func exchangeDNSOverBridge(t *testing.T, xinst *xcore.Instance) {
 	t.Helper()
-	ob := &xrayOutbound{tag: "proxy", inst: xinst}
+	ob := &backendOutbound{typ: OutboundType, tag: "proxy", nodeID: singleNodeTag, be: newXrayBackend(xinst)}
 	dest := M.ParseSocksaddr("8.8.8.8:53")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -29,7 +29,7 @@ func TestConstructTunPlusXrayBridge(t *testing.T) {
       "inbounds": [{"type":"tun","tag":"tun-in","address":["172.18.0.1/30"],"auto_route":false,"stack":"gvisor"}],
       "outbounds": [{"type":"xray-reality","tag":"proxy"},{"type":"direct","tag":"direct"}],
       "route": {"final":"proxy","rules":[{"action":"sniff"}]}
-    }`), xinst, nil)
+    }`), []Backend{newXrayBackend(xinst)}, nil)
 	if err != nil {
 		t.Fatalf("BuildBox (construct TUN + xray-reality): %v", err)
 	}
@@ -49,7 +49,7 @@ func TestConstructFreedomValidationConfig(t *testing.T) {
 		t.Fatalf("BuildXray: %v", err)
 	}
 	defer xinst.Close()
-	b, err := BuildBox(sbCfg, xinst, nil)
+	b, err := BuildBox(sbCfg, []Backend{newXrayBackend(xinst)}, nil)
 	if err != nil {
 		t.Fatalf("BuildBox with dns section: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestConstructNodeTUNConfigs(t *testing.T) {
 		t.Fatalf("BuildXray (compiled node config): %v", err)
 	}
 	defer xinst.Close()
-	b, err := BuildBox(sbCfg, xinst, nil)
+	b, err := BuildBox(sbCfg, []Backend{newXrayBackend(xinst)}, nil)
 	if err != nil {
 		t.Fatalf("BuildBox (TUN + compiled node config): %v", err)
 	}

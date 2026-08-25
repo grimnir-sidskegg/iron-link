@@ -19,10 +19,14 @@ import (
 	_ "github.com/xtls/xray-core/main/distro/all" // register xray's protocols/transports
 )
 
-// xrayOptions carries the xray-reality outbound's options as declared in the
-// sing-box config. Empty for now (the xray instance is built separately and
-// injected); per-node params move here in a later step.
-type xrayOptions struct{}
+// backendOptions carries a backend outbound's options as declared in the
+// sing-box config. NodeID is the backend-side node id the constructed
+// backendOutbound dispatches under (the inbound tag the backend routes on
+// — see compile.go); empty selects the backend's default outbound, which is the
+// single hosted node, so the existing single-node configs keep working unchanged.
+type backendOptions struct {
+	NodeID string `json:"node_id,omitempty"`
+}
 
 // BuildXray builds and STARTS an xray instance from a JSON config. The caller
 // owns it and must Close it. (Ported from the spike.)
@@ -36,26 +40,32 @@ func BuildXray(cfg []byte) (*xcore.Instance, error) {
 		return nil, err
 	}
 	if err := inst.Start(); err != nil {
+		inst.Close() // H1: a failed Start still holds the instance's resources
 		return nil, err
 	}
 	return inst, nil
 }
 
-// BuildBox assembles a sing-box instance from singBoxCfg, registering the
-// xray-reality outbound so its DialContext dispatches to xinst via core.Dial.
-// A non-nil logSink taps the box's log output (§6) via the PlatformLogWriter
-// hook — lines still reach the box's own output too.
+// BuildBox assembles a sing-box instance from singBoxCfg, registering ONE
+// outbound constructor per backend (keyed by backend.Type()) so each member
+// outbound's Dial/Listen delegates to its backend, resolving the node id from
+// the outbound's own options — no single instance is captured, so one backend
+// can host many nodes. A non-nil logSink taps the box's log output (§6) via the
+// PlatformLogWriter hook — lines still reach the box's own output too.
 //
 // It does NOT Start the returned box — construction opens no TUN device, so this
 // needs no root. The caller Starts it (root / CAP_NET_ADMIN) to open the TUN and
 // begin routing. Build the daemon with `-tags "with_gvisor,with_utls,with_clash_api,with_quic"` for the
 // gvisor TUN stack used by the configs here (and the QUIC outbounds).
-func BuildBox(singBoxCfg []byte, xinst *xcore.Instance, logSink LogSink) (*box.Box, error) {
+func BuildBox(singBoxCfg []byte, backends []Backend, logSink LogSink) (*box.Box, error) {
 	outReg := include.OutboundRegistry()
-	outbound.Register[xrayOptions](outReg, OutboundType,
-		func(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options xrayOptions) (adapter.Outbound, error) {
-			return &xrayOutbound{tag: tag, inst: xinst}, nil
-		})
+	for _, be := range backends {
+		be := be // capture per iteration, not a shared loop variable
+		outbound.Register[backendOptions](outReg, be.Type(),
+			func(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options backendOptions) (adapter.Outbound, error) {
+				return &backendOutbound{typ: be.Type(), tag: tag, nodeID: options.NodeID, be: be}, nil
+			})
+	}
 
 	ctx := box.Context(
 		service.ContextWith(context.Background(), deprecated.NewStderrManager(log.StdLogger())),

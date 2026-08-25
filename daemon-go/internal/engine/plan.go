@@ -156,7 +156,14 @@ func (p *SessionPlan) planOutbounds() ([]any, error) {
 		outbounds = append(outbounds, ob)
 	}
 	if p.XrayNode != nil {
-		outbounds = append(outbounds, map[string]any{"type": OutboundType, "tag": p.XrayNode.ID})
+		// node_id is the backend-side dispatch id: the xray instance
+		// (CompileXrayClient) hosts this one node under singleNodeTag with a
+		// matching inboundTag rule, so the member dispatches deterministically by
+		// inbound tag. The selector still keys on the outbound tag (the node UUID),
+		// so selection semantics are unchanged.
+		outbounds = append(outbounds, map[string]any{
+			"type": OutboundType, "tag": p.XrayNode.ID, "node_id": singleNodeTag,
+		})
 	}
 	outbounds = append(outbounds,
 		map[string]any{"type": "direct", "tag": "direct"},

@@ -298,7 +298,12 @@ func DownloadThroughXray(ctx context.Context, p proxy.Profile, stubSuffix, url s
 
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-	ob := &xrayOutbound{tag: "dl", inst: xinst}
+	// Dispatch through the engine-agnostic seam rather than an xray-specific
+	// outbound: the ephemeral xinst hosts the node under singleNodeTag (or, for a
+	// freedom stub, one default outbound), which either the rule or the default
+	// reaches. xinst's lifetime stays with the defer above; the backend wrapper
+	// owns no extra resources, so it is not Closed here.
+	ob := &backendOutbound{typ: OutboundType, tag: "dl", nodeID: singleNodeTag, be: newXrayBackend(xinst)}
 	client := &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return ob.DialContext(ctx, N.NetworkTCP, M.ParseSocksaddr(addr))
@@ -344,7 +349,9 @@ func probeThroughXray(ctx context.Context, xinst *xcore.Instance, url string) (t
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 
-	ob := &xrayOutbound{tag: "probe", inst: xinst}
+	// Dispatch through the engine-agnostic seam (see DownloadThroughXray); xinst
+	// is owned by the caller, so the backend wrapper is not Closed here.
+	ob := &backendOutbound{typ: OutboundType, tag: "probe", nodeID: singleNodeTag, be: newXrayBackend(xinst)}
 	client := &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {

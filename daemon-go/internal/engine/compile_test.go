@@ -160,6 +160,18 @@ func TestCompileXrayClientRealityXhttpShape(t *testing.T) {
 	if got := dig(t, cfg, "routing", "rules", 0, "outboundTag"); got != "direct" {
 		t.Errorf("routing rule outboundTag = %v, want direct", got)
 	}
+	// The dispatch contract: the node outbound's tag and its inbound-tag rule
+	// both equal singleNodeTag, so the backend's ContextWithInbound{Tag:
+	// singleNodeTag} reaches exactly this node — compiler and dispatcher agree.
+	if got := dig(t, proxyOut, "tag"); got != singleNodeTag {
+		t.Errorf("outbounds[0].tag = %v, want %q", got, singleNodeTag)
+	}
+	if got := dig(t, cfg, "routing", "rules", 1, "inboundTag", 0); got != singleNodeTag {
+		t.Errorf("per-node rule inboundTag = %v, want %q", got, singleNodeTag)
+	}
+	if got := dig(t, cfg, "routing", "rules", 1, "outboundTag"); got != singleNodeTag {
+		t.Errorf("per-node rule outboundTag = %v, want %q", got, singleNodeTag)
+	}
 }
 
 // TestNodeSocksConfigsStart: the no-root node pair (sing-box SOCKS inbound +

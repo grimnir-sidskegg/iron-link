@@ -5,16 +5,15 @@ import (
 	"fmt"
 
 	box "github.com/sagernet/sing-box"
-	xcore "github.com/xtls/xray-core/core"
 )
 
 // Session is a running data plane: a started sing-box (TUN + routing) plus the
-// xray instance its xray-reality outbound dispatches to. It owns both cores'
-// lifetimes.
+// backends its member outbounds dispatch to (xray today; the seam is
+// engine-agnostic). It owns the box's and every backend's lifetime.
 type Session struct {
-	box     *box.Box
-	xray    *xcore.Instance
-	traffic TrafficCounter
+	box      *box.Box
+	backends []Backend
+	traffic  TrafficCounter
 }
 
 // StartOptions are the per-session instrumentation hooks (§6).
@@ -44,16 +43,19 @@ func StartWithOptions(singBoxCfg, xrayCfg []byte, opts StartOptions) (*Session, 
 	if err != nil {
 		return nil, fmt.Errorf("build xray: %w", err)
 	}
-	s := &Session{xray: xinst}
-	b, err := BuildBox(singBoxCfg, xinst, opts.LogSink)
+	// One xray backend hosts this session's xray-routed node(s). The seam is
+	// engine-agnostic — future engines append their own backends here.
+	backends := []Backend{newXrayBackend(xinst)}
+	s := &Session{backends: backends}
+	b, err := BuildBox(singBoxCfg, backends, opts.LogSink)
 	if err != nil {
-		xinst.Close()
+		_ = closeBackends(backends)
 		return nil, fmt.Errorf("build sing-box: %w", err)
 	}
 	b.Router().AppendTracker(&s.traffic)
 	if err := b.Start(); err != nil {
 		b.Close()
-		xinst.Close()
+		_ = closeBackends(backends)
 		return nil, fmt.Errorf("start sing-box (open TUN — needs root?): %w", err)
 	}
 	s.box = b
@@ -81,8 +83,10 @@ func (s *Session) TrafficApps() []AppBytes {
 	return s.traffic.AppTotals()
 }
 
-// Close stops the box (tearing down auto_route / the TUN device) and the xray
-// instance, returning any errors joined.
+// Close stops the box (tearing down auto_route / the TUN device) FIRST, then
+// every backend, returning any errors joined. Box-first keeps the ordering the
+// single-xray session had (stop routing traffic before closing the engines it
+// dispatches to).
 func (s *Session) Close() error {
 	// Drop the interface-bind bypass first: with the TUN going down, probe dials
 	// are direct again, and the held func references this box's monitor (closed
@@ -95,11 +99,11 @@ func (s *Session) Close() error {
 		}
 		s.box = nil
 	}
-	if s.xray != nil {
-		if err := s.xray.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("close xray: %w", err))
+	for _, be := range s.backends {
+		if err := be.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close %s backend: %w", be.Type(), err))
 		}
-		s.xray = nil
 	}
+	s.backends = nil
 	return errors.Join(errs...)
 }
