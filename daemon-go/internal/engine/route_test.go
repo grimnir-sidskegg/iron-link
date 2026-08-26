@@ -276,3 +276,14 @@ func TestRouteCompileErrors(t *testing.T) {
 		t.Errorf("action default target must be rejected: %v", err)
 	}
 }
+
+// TestRouteTargetGroup: a routing rule can target an active group node (its
+// urltest tag resolves like any member).
+func TestRouteTargetGroup(t *testing.T) {
+	p := xrayOnlyPlan() // one xray member "9e00...0009"
+	p.Group = &GroupPlan{ID: "grp-1", Name: "Auto", Members: []string{p.XrayNodes[0].ID}}
+	tag, err := p.resolveTarget(routing.RuleTarget{Kind: routing.TargetNode, Node: "grp-1"})
+	if err != nil || tag != "grp-1" {
+		t.Errorf("group node target = %q, %v; want grp-1, nil", tag, err)
+	}
+}

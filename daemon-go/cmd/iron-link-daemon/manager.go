@@ -377,16 +377,12 @@ func buildPlan(prof *store.Profile, active *store.Node) (engine.SessionPlan, err
 
 	for i := range prof.Nodes {
 		n := &prof.Nodes[i]
-		isActive := n.ID == active.ID
 		if n.IsGroup() {
-			// A group lowers to a urltest over its members, which lands in a
-			// later increment; until then activating one is a clear error, and a
-			// non-active group is simply not a selector member of its own.
-			if isActive {
-				return plan, fmt.Errorf("activating a group (%q) is not supported yet", n.DisplayName())
-			}
+			// A group is not a dialable member; the ACTIVE group is lowered to a
+			// urltest below, once every dialable member is known.
 			continue
 		}
+		isActive := n.ID == active.ID
 		core, err := proxy.SelectCore(n.Profile(), api.CoreSingBox, n.Preferences.CoreOverride)
 		if err != nil {
 			if isActive {
@@ -417,6 +413,30 @@ func buildPlan(prof *store.Profile, active *store.Node) (engine.SessionPlan, err
 			plan.XrayNodes = append([]engine.NamedNode{named}, plan.XrayNodes...)
 		} else {
 			plan.XrayNodes = append(plan.XrayNodes, named)
+		}
+	}
+
+	// The active node is a group: lower it to a urltest over its members that
+	// actually embedded as dialable selector members (a churned / undialable
+	// member is dropped; a group with none left cannot be activated). plan.Group
+	// is still nil here, so IsMember tests only the dialable members.
+	if active.IsGroup() {
+		var members []string
+		for _, id := range resolveGroupMemberIDs(prof, active) {
+			if plan.IsMember(id) {
+				members = append(members, id)
+			}
+		}
+		if len(members) == 0 {
+			return plan, fmt.Errorf("group %q has no dialable members to select among", active.DisplayName())
+		}
+		plan.Group = &engine.GroupPlan{
+			ID:        active.ID,
+			Name:      active.DisplayName(),
+			Members:   members,
+			ProbeURL:  active.Group.Probe.URL,
+			Interval:  time.Duration(active.Group.Probe.IntervalSec) * time.Second,
+			Tolerance: active.Group.Probe.Tolerance,
 		}
 	}
 	return plan, nil
@@ -698,11 +718,12 @@ func (m *manager) status() api.Response {
 		Entries: m.entriesLocked(),
 		Active:  m.active,
 	}
-	// The live node comes from the IN-PROCESS selector (no Clash
-	// API); single-node sessions have no selector, so the activated node is
-	// the live node by construction. The selector tag is the node UUID; map it
-	// BACK to the client-facing display name so the wire behaves as before.
-	if live, ok := m.sess.SelectedOutbound(); ok {
+	// The live node comes from the IN-PROCESS selector (no Clash API);
+	// single-node sessions have no selector, so the activated node is the live
+	// node by construction. LiveOutbound descends one group level, so when Auto
+	// is active this is the urltest's current pick, not the group tag. The tag is
+	// the node UUID; map it BACK to the client-facing display name.
+	if live, ok := m.sess.LiveOutbound(); ok {
 		if name, ok := m.plan.DisplayNameForTag(live); ok {
 			resp.ActiveNodeLive = &name
 		} else {

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"ironlink/daemon/internal/api"
@@ -108,20 +110,42 @@ func TestGroupVerbsDoNotPanic(t *testing.T) {
 		t.Errorf("diagnose on a group must error: %+v", r)
 	}
 
-	// buildPlan: activating the group errors; activating the dialable node
-	// succeeds with the group simply absent from the plan.
+	// buildPlan: activating the group lowers it to a urltest over its members;
+	// activating the dialable node embeds only that node (group absent).
 	prof, err := m.store.LoadProfile("main")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := buildPlan(prof, prof.FindNodeByName("Auto")); err == nil {
-		t.Error("buildPlan must reject a group as the active node")
+	gplan, err := buildPlan(prof, prof.FindNodeByName("Auto"))
+	if err != nil {
+		t.Fatalf("buildPlan for the group must succeed (lowered): %v", err)
+	}
+	if gplan.Group == nil || gplan.Group.Name != "Auto" || len(gplan.Group.Members) != 1 {
+		t.Errorf("group not lowered to a urltest plan: %+v", gplan.Group)
 	}
 	plan, err := buildPlan(prof, prof.FindNodeByName("node-x"))
 	if err != nil {
 		t.Fatalf("buildPlan(node-x): %v", err)
 	}
-	if len(plan.Natives) != 1 || len(plan.XrayNodes) != 0 {
+	if len(plan.Natives) != 1 || len(plan.XrayNodes) != 0 || plan.Group != nil {
 		t.Errorf("plan must embed only the dialable node, not the group: %+v", plan)
+	}
+}
+
+// TestUpsertRoutingRejectsGroupTarget: a routing rule cannot target a group —
+// the group's urltest exists only while it is the active node, so such a rule
+// would fail an unrelated activation. It is rejected at authoring time.
+func TestUpsertRoutingRejectsGroupTarget(t *testing.T) {
+	m := groupFixtureManager(t)
+
+	groupTarget := `{"name":"g","rule_sets":[],"rules":[{"target":{"Node":"99999999-9999-9999-9999-999999999999"},"domain_keyword":["x.com"]}],"default_target":"Direct"}`
+	resp := m.Handle(api.Request{Command: api.CmdUpsertRouting, RoutingConfig: json.RawMessage(groupTarget)})
+	if resp.Status != api.StatusError || !strings.Contains(resp.Message, "group") {
+		t.Errorf("a rule targeting a group must be rejected: %+v", resp)
+	}
+
+	nodeTarget := `{"name":"ok","rule_sets":[],"rules":[{"target":{"Node":"11111111-1111-1111-1111-111111111111"},"domain_keyword":["x.com"]}],"default_target":"Direct"}`
+	if resp := m.Handle(api.Request{Command: api.CmdUpsertRouting, RoutingConfig: json.RawMessage(nodeTarget)}); resp.Status != api.StatusOk {
+		t.Errorf("a rule targeting a dialable node must be accepted: %+v", resp)
 	}
 }

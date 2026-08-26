@@ -1,0 +1,1 @@
+{"status": "running", "entries": [{"role": "Tun", "state": "running", "uptime_secs": 42}, {"role": "Proxy", "state": "running", "uptime_secs": 42}], "active": {"profile": "main", "node": "Auto", "routing": "basic", "tun": false}, "active_node_live": "Frankfurt"}

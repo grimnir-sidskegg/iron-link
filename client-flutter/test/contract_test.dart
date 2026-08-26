@@ -147,6 +147,13 @@ final responseCases = <String, void Function(Response)>{
     expect(r.active, isNull);
     expect(r.activeNodeLive, isNull);
   },
+  'responses/running_group.json': (r) {
+    r as RunningResponse;
+    // Active node is the group; the live pick is a different member.
+    expect(r.active?.node, 'Auto');
+    expect(r.activeNodeLive, 'Frankfurt');
+    expect(r.activeNodeLive, isNot(r.active?.node));
+  },
   'responses/started.json': (r) {
     r as StartedResponse;
     expect(r.role, CoreRole.tun);

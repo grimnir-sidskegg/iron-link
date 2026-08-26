@@ -10,6 +10,7 @@ package engine
 import (
 	"strings"
 	"testing"
+	"time"
 
 	ilproxy "ironlink/daemon/internal/proxy"
 )
@@ -128,6 +129,98 @@ func TestPlanTwoXrayMembersLiveSelect(t *testing.T) {
 	}
 	if err := sess.SelectOutbound("xray-a"); err != nil {
 		t.Fatalf("live select back to the first xray member: %v", err)
+	}
+}
+
+// TestPlanGroupUrltestLiveSelect: an active group lowers to a urltest over its
+// members, becomes the selector default, and the session live-switches onto a
+// concrete member and back. LiveOutbound descends into the urltest.
+func TestPlanGroupUrltestLiveSelect(t *testing.T) {
+	p := twoNativePlan() // node-a, node-b
+	p.Group = &GroupPlan{
+		ID:       "auto-group",
+		Name:     "Auto",
+		Members:  []string{"node-a", "node-b"},
+		ProbeURL: "https://example.com/generate_204",
+		Interval: 3 * time.Minute,
+	}
+	p.ActiveTag = "auto-group"
+
+	if !p.IsMember("auto-group") {
+		t.Fatalf("the group must be a selector member: %v", p.memberTags())
+	}
+
+	sbCfg, xrayCfg, err := PlanSocksConfigs(p, "127.0.0.1", freePort(t))
+	if err != nil {
+		t.Fatalf("PlanSocksConfigs: %v", err)
+	}
+	sess, err := Start(sbCfg, xrayCfg)
+	if err != nil {
+		t.Fatalf("Start (group urltest): %v", err)
+	}
+	defer sess.Close()
+
+	// The selector defaults to the group.
+	if now, _ := sess.SelectedOutbound(); now != "auto-group" {
+		t.Errorf("selector default = %q, want auto-group", now)
+	}
+	// LiveOutbound descends into the urltest: its pick is a member, or the group
+	// tag itself in the pre-first-sweep window (probes to doc IPs fail).
+	if live, ok := sess.LiveOutbound(); !ok || (live != "auto-group" && live != "node-a" && live != "node-b") {
+		t.Errorf("LiveOutbound = %q, want a member or the group tag", live)
+	}
+	// A live switch to a concrete member takes LiveOutbound off the group.
+	if err := sess.SelectOutbound("node-a"); err != nil {
+		t.Fatalf("select member node-a: %v", err)
+	}
+	if live, _ := sess.LiveOutbound(); live != "node-a" {
+		t.Errorf("after selecting node-a, LiveOutbound = %q, want node-a", live)
+	}
+	if err := sess.SelectOutbound("auto-group"); err != nil {
+		t.Fatalf("select back onto the group: %v", err)
+	}
+}
+
+// TestPlanGroupValidation: a group with no members, or a member that is not an
+// embedded node, is rejected at compile time.
+func TestPlanGroupValidation(t *testing.T) {
+	p := twoNativePlan()
+	p.Group = &GroupPlan{ID: "g", Name: "Auto", Members: nil}
+	p.ActiveTag = "g"
+	if _, _, err := PlanSocksConfigs(p, "127.0.0.1", 1080); err == nil {
+		t.Error("a group with no members must be rejected")
+	}
+
+	p = twoNativePlan()
+	p.Group = &GroupPlan{ID: "g", Name: "Auto", Members: []string{"ghost"}}
+	p.ActiveTag = "g"
+	if _, _, err := PlanSocksConfigs(p, "127.0.0.1", 1080); err == nil {
+		t.Error("a group member that is not an embedded node must be rejected")
+	}
+}
+
+// TestPlanGroupIdleTimeoutClamp: idle_timeout is emitted only when the probe
+// interval exceeds the sing-box default idle_timeout (30m), so NewURLTestGroup's
+// interval <= idle_timeout constraint always holds.
+func TestPlanGroupIdleTimeoutClamp(t *testing.T) {
+	p := twoNativePlan()
+	p.Group = &GroupPlan{ID: "g", Name: "Auto", Members: []string{"node-a"}, Interval: 3 * time.Minute}
+	p.ActiveTag = "g"
+	sb, _, err := PlanSocksConfigs(p, "127.0.0.1", 1080)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(sb), "idle_timeout") {
+		t.Error("interval <= 30m must NOT emit idle_timeout")
+	}
+
+	p.Group.Interval = 45 * time.Minute
+	sb, _, err = PlanSocksConfigs(p, "127.0.0.1", 1080)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sb), "idle_timeout") {
+		t.Error("interval > 30m must emit idle_timeout")
 	}
 }
 

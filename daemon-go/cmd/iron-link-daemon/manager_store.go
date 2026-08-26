@@ -510,6 +510,13 @@ func (m *manager) upsertRouting(req api.Request) api.Response {
 		return errResp("decode routing_config: " + err.Error())
 	}
 	return m.withProfile(req, func(name string, p *store.Profile) (api.Response, error) {
+		// A group cannot yet be a routing rule target: its urltest exists in the
+		// plan only while the group is the ACTIVE node, so a rule targeting it
+		// would fail the activation of any OTHER node. Reject at authoring time
+		// with a readable message instead of a raw-UUID activation failure later.
+		if g := groupRoutingTarget(p, &rc); g != "" {
+			return api.Response{}, fmt.Errorf("routing rule targets group %q; a group is not a routing target — target one of its members instead", g)
+		}
 		exists := false
 		for i := range p.RoutingConfigs {
 			if p.RoutingConfigs[i].ID == rc.ID {
@@ -526,6 +533,29 @@ func (m *manager) upsertRouting(req api.Request) api.Response {
 		}
 		return api.Response{Status: api.StatusOk, Message: "routing upserted: " + rc.Name}, nil
 	})
+}
+
+// groupRoutingTarget returns the display name of a group a routing config
+// targets (its default target or any rule), or "" when no target is a group —
+// the guard that keeps a group out of routing rules (see upsertRouting).
+func groupRoutingTarget(p *store.Profile, rc *routing.Config) string {
+	isGroupTarget := func(t routing.RuleTarget) string {
+		if t.Kind == routing.TargetNode {
+			if n := p.FindNodeByID(t.Node); n != nil && n.IsGroup() {
+				return n.DisplayName()
+			}
+		}
+		return ""
+	}
+	if g := isGroupTarget(rc.DefaultTarget); g != "" {
+		return g
+	}
+	for i := range rc.Rules {
+		if g := isGroupTarget(rc.Rules[i].Target); g != "" {
+			return g
+		}
+	}
+	return ""
 }
 
 func (m *manager) removeRouting(req api.Request) api.Response {

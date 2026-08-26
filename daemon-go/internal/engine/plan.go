@@ -22,6 +22,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/protocol/group"
 
 	"ironlink/daemon/internal/proxy"
@@ -70,17 +71,58 @@ type SessionPlan struct {
 	// Tunables are the engine-relevant user settings; nil means
 	// DefaultTunables() (the pre-settings hardcoded shapes).
 	Tunables *Tunables
+	// Group, when set, is the ACTIVE group lowered to a urltest selector member
+	// (fastest-by-ping over its members). Only the active group is lowered — idle
+	// groups would multiply probe sweeps for no benefit.
+	Group *GroupPlan
+}
+
+// GroupPlan lowers the active group node to a sing-box urltest outbound. ID is
+// the group node UUID and IS the urltest tag (so the selector can default to it
+// and the wire addresses it by name like any node). Members are node UUIDs,
+// already filtered to embedded selector members. The probe fields are zero when
+// the group carries no tuning — the emitted urltest then omits them and sing-box
+// applies its defaults.
+type GroupPlan struct {
+	ID        string
+	Name      string
+	Members   []string
+	ProbeURL  string
+	Interval  time.Duration
+	Tolerance uint16
 }
 
 // memberTags lists the selector members by their UUID tag: every native node,
-// then every xray node (each an xray-reality outbound of the one instance).
+// then every xray node (each an xray-reality outbound of the one instance), then
+// the active group's urltest (itself a selector member, so the selector can
+// default to it and a live switch onto/off it works).
 func (p *SessionPlan) memberTags() []string {
-	tags := make([]string, 0, len(p.Natives)+len(p.XrayNodes))
-	for _, n := range p.Natives {
-		tags = append(tags, n.ID)
+	n := len(p.Natives) + len(p.XrayNodes)
+	if p.Group != nil {
+		n++
 	}
-	for _, n := range p.XrayNodes {
-		tags = append(tags, n.ID)
+	tags := make([]string, 0, n)
+	for _, m := range p.Natives {
+		tags = append(tags, m.ID)
+	}
+	for _, m := range p.XrayNodes {
+		tags = append(tags, m.ID)
+	}
+	if p.Group != nil {
+		tags = append(tags, p.Group.ID)
+	}
+	return tags
+}
+
+// nodeTags lists only the DIALABLE members (natives + xray), excluding the group
+// — the set a group's urltest members must be drawn from.
+func (p *SessionPlan) nodeTags() []string {
+	tags := make([]string, 0, len(p.Natives)+len(p.XrayNodes))
+	for _, m := range p.Natives {
+		tags = append(tags, m.ID)
+	}
+	for _, m := range p.XrayNodes {
+		tags = append(tags, m.ID)
 	}
 	return tags
 }
@@ -105,6 +147,11 @@ func (p *SessionPlan) MemberTagForName(name string) (tag string, ok bool) {
 			return p.XrayNodes[i].ID, true
 		}
 	}
+	// The group is checked LAST so a dialable node wins a name tie (consistent
+	// with store.FindNodeByName's node-beats-group rule).
+	if p.Group != nil && p.Group.Name == name {
+		return p.Group.ID, true
+	}
 	return "", false
 }
 
@@ -121,6 +168,9 @@ func (p *SessionPlan) DisplayNameForTag(tag string) (name string, ok bool) {
 		if p.XrayNodes[i].ID == tag {
 			return p.XrayNodes[i].Name, true
 		}
+	}
+	if p.Group != nil && p.Group.ID == tag {
+		return p.Group.Name, true
 	}
 	return "", false
 }
@@ -139,6 +189,19 @@ func (p *SessionPlan) validate() error {
 			return fmt.Errorf("duplicate node id %q — selector members must be unique", tag)
 		}
 		seen[tag] = true
+	}
+	// A group's urltest members must be embedded node members — sing-box hard
+	// fails Start on a urltest naming a tag it cannot resolve.
+	if p.Group != nil {
+		if len(p.Group.Members) == 0 {
+			return fmt.Errorf("group %q has no members", p.Group.Name)
+		}
+		nodes := p.nodeTags()
+		for _, m := range p.Group.Members {
+			if !slices.Contains(nodes, m) {
+				return fmt.Errorf("group %q member %q is not an embedded node", p.Group.Name, m)
+			}
+		}
 	}
 	return nil
 }
@@ -173,6 +236,31 @@ func (p *SessionPlan) planOutbounds() ([]any, error) {
 		outbounds = append(outbounds, map[string]any{
 			"type": OutboundType, "tag": p.XrayNodes[i].ID, "node_id": p.XrayNodes[i].ID,
 		})
+	}
+	if p.Group != nil {
+		urltest := map[string]any{
+			"type":      "urltest",
+			"tag":       p.Group.ID,
+			"outbounds": p.Group.Members,
+			// A live urltest re-pick must move traffic, like the selector switch.
+			"interrupt_exist_connections": true,
+		}
+		if p.Group.ProbeURL != "" {
+			urltest["url"] = p.Group.ProbeURL
+		}
+		if p.Group.Interval > 0 {
+			urltest["interval"] = p.Group.Interval.String()
+			// NewURLTestGroup requires interval <= idle_timeout (default 30m); a
+			// longer provider interval must raise idle_timeout to match or Start
+			// fails.
+			if p.Group.Interval > 30*time.Minute {
+				urltest["idle_timeout"] = p.Group.Interval.String()
+			}
+		}
+		if p.Group.Tolerance > 0 {
+			urltest["tolerance"] = p.Group.Tolerance
+		}
+		outbounds = append(outbounds, urltest)
 	}
 	outbounds = append(outbounds,
 		map[string]any{"type": "direct", "tag": "direct"},
@@ -453,4 +541,30 @@ func (s *Session) SelectedOutbound() (string, bool) {
 		return "", false
 	}
 	return sel.Now(), true
+}
+
+// LiveOutbound is SelectedOutbound descended one level: when the selected member
+// is itself a group (a urltest — the "Auto" node), the group's CURRENT pick;
+// otherwise the selected member. This is the true live node behind an active
+// Auto selection.
+//
+// Now() may briefly be "" only in the window between PostStart and the first
+// probe sweep; after the first sweep a urltest ALWAYS holds a pick (it installs
+// the first member even when every probe failed), so "" falls back to the group
+// tag. NOTE: Now() reads the pick without synchronizing against the sweep
+// goroutine (upstream sing-box); a `-race` run may flag protocol/group, which is
+// not ours to fix under the pin (the shipping gate runs no -race).
+func (s *Session) LiveOutbound() (string, bool) {
+	selected, ok := s.SelectedOutbound()
+	if !ok {
+		return "", false
+	}
+	if ob, found := s.box.Outbound().Outbound(selected); found {
+		if g, isGroup := ob.(adapter.OutboundGroup); isGroup {
+			if now := g.Now(); now != "" {
+				return now, true
+			}
+		}
+	}
+	return selected, true
 }

@@ -253,6 +253,18 @@ var sharedResponses = map[string]Response{
 		Status:  StatusRunning,
 		Entries: []CoreEntry{{Role: RoleProxy, State: StateRunning, UptimeSecs: 5}},
 	},
+	// The active node is a group ("Auto"); active_node_live is the urltest's
+	// current member pick, DIFFERING from the group name — the "Auto -> now X"
+	// state the client's badge keys on.
+	"running_group": {
+		Status: StatusRunning,
+		Entries: []CoreEntry{
+			{Role: RoleTun, State: StateRunning, UptimeSecs: 42},
+			{Role: RoleProxy, State: StateRunning, UptimeSecs: 42},
+		},
+		Active:         &PersistedEntry{Profile: ptr("main"), Node: ptr("Auto"), Routing: ptr("basic")},
+		ActiveNodeLive: ptr("Frankfurt"),
+	},
 	"activated": {
 		Status: StatusActivated,
 		Entries: []CoreEntry{
