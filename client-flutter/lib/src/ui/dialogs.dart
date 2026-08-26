@@ -5,6 +5,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../ipc/client.dart';
 import '../wire/wire.dart';
 import 'theme/app_colors.dart';
 
@@ -43,14 +44,79 @@ Future<String?> promptAdd(BuildContext context) {
   );
 }
 
-/// The per-stage `diagnose` verdict report.
+/// The per-stage `diagnose` verdict report. Opens IMMEDIATELY on a spinner and
+/// swaps in the verdict (or the failure) when the probe settles — a diagnose
+/// runs every stage to its own budget, so a hung/timing-out node would
+/// otherwise leave the screen blank for the whole run before any window shows.
 class DiagnosisDialog extends StatelessWidget {
-  const DiagnosisDialog({super.key, required this.verdict});
+  const DiagnosisDialog({super.key, required this.node, required this.pending});
 
-  final DiagnosisInfo verdict;
+  /// The node under probe — titles the window while it is still running.
+  final String node;
+
+  /// The in-flight `diagnose` call; the dialog is built around it.
+  final Future<DiagnosisInfo> pending;
 
   @override
   Widget build(BuildContext context) {
+    return FutureBuilder<DiagnosisInfo>(
+      future: pending,
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return _shell(
+            context,
+            leading: const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2)),
+            title: 'Diagnosing $node',
+            content: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Text('Probing each stage…'),
+            ),
+          );
+        }
+        if (snap.hasError) {
+          final err = snap.error;
+          final msg = err is ClientException ? err.message : '$err';
+          return _shell(
+            context,
+            leading:
+                Icon(Icons.error, color: Theme.of(context).colorScheme.error),
+            title: 'Diagnosis: $node',
+            content: Text(msg,
+                style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          );
+        }
+        return _verdict(context, snap.data!);
+      },
+    );
+  }
+
+  /// Bare title/content/Close frame, shared by the running and error states.
+  Widget _shell(
+    BuildContext context, {
+    required Widget leading,
+    required String title,
+    required Widget content,
+  }) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          leading,
+          const SizedBox(width: 8),
+          Expanded(child: Text(title)),
+        ],
+      ),
+      content: content,
+      actions: [
+        FilledButton(
+            onPressed: () => Navigator.pop(context), child: const Text('Close')),
+      ],
+    );
+  }
+
+  Widget _verdict(BuildContext context, DiagnosisInfo verdict) {
     return AlertDialog(
       title: Row(
         children: [

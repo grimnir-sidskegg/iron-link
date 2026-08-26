@@ -351,14 +351,16 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _diagnose(NodeInfo node) async {
-    final verdict = await guard(
-      context,
-      () => widget.client.diagnose(node.name),
-    );
-    if (verdict == null || !mounted) return;
+    // Open the window at once and let it drive the probe: it shows a spinner
+    // immediately and swaps in the verdict (or the error) when the daemon
+    // replies — a timing-out node no longer stares at a blank screen for the
+    // whole stage budget before anything appears.
     await showDialog<void>(
       context: context,
-      builder: (context) => DiagnosisDialog(verdict: verdict),
+      builder: (context) => DiagnosisDialog(
+        node: node.name,
+        pending: widget.client.diagnose(node.name),
+      ),
     );
   }
 
