@@ -272,6 +272,44 @@ func (p *Profile) AddNode(n Node) string {
 	return n.ID
 }
 
+// AddGroup appends a USER group (SubID nil) built from spec, returning its id.
+// The name is validated; a group never becomes the auto-default, so the active
+// node is left untouched.
+func (p *Profile) AddGroup(g GroupSpec) (string, error) {
+	if g.Name == "" {
+		return "", fmt.Errorf("a group needs a name")
+	}
+	n := NewGroupNode(g, nil)
+	p.Nodes = append(p.Nodes, n)
+	return n.ID, nil
+}
+
+// ReplaceGroupByID replaces a USER group's spec in place, keeping its id (so an
+// active-node or membership reference to it survives the edit). Errors when the
+// id is unknown or names a dialable node or a PROVIDER group (a provider group
+// is regenerated from its subscription on every refresh, so editing it is
+// futile).
+func (p *Profile) ReplaceGroupByID(id string, g GroupSpec) error {
+	if g.Name == "" {
+		return fmt.Errorf("a group needs a name")
+	}
+	for i := range p.Nodes {
+		if p.Nodes[i].ID != id {
+			continue
+		}
+		if !p.Nodes[i].IsGroup() {
+			return fmt.Errorf("node %s is not a group", id)
+		}
+		if p.Nodes[i].SubID != nil {
+			return fmt.Errorf("group %s belongs to a subscription and cannot be edited", id)
+		}
+		spec := g
+		p.Nodes[i].Group = &spec
+		return nil
+	}
+	return fmt.Errorf("group %s does not exist in this profile", id)
+}
+
 // RemoveNodeByID removes a node by id, clearing the active-node selection if
 // it pointed at the removed node. Reports whether a node was removed.
 func (p *Profile) RemoveNodeByID(id string) bool {
@@ -293,11 +331,19 @@ func (p *Profile) SetActiveNode(id string) error {
 	return nil
 }
 
-// SetActiveNodeIfUnset selects the first node when none is active yet,
-// returning the chosen id ("" if none).
+// SetActiveNodeIfUnset selects the first DIALABLE node when none is active yet,
+// returning the chosen id ("" if none). Groups are skipped: a group has no
+// endpoint until it is explicitly activated (and may have no dialable members),
+// so it must never become the silent default just by being added first.
 func (p *Profile) SetActiveNodeIfUnset() string {
-	if p.ActiveNodeID == nil && len(p.Nodes) > 0 {
-		id := p.Nodes[0].ID
+	if p.ActiveNodeID != nil {
+		return ""
+	}
+	for i := range p.Nodes {
+		if p.Nodes[i].IsGroup() {
+			continue
+		}
+		id := p.Nodes[i].ID
 		p.ActiveNodeID = &id
 		return id
 	}

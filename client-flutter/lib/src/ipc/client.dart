@@ -307,6 +307,12 @@ class DaemonClient {
   Future<void> upsertRouting(Map<String, Object?> config) =>
       _expect<OkResponse>(UpsertRoutingRequest(config));
 
+  /// Create or edit a user group (an "Auto" node). [group] is the spec —
+  /// {id?, name, members?/all_of_sub?, probe?}; an empty/absent id creates,
+  /// an existing user-group id replaces in place. Removal reuses [removeNode].
+  Future<void> upsertGroup(Map<String, Object?> group) =>
+      _expect<OkResponse>(UpsertGroupRequest(group));
+
   /// Returns one config's full JSON document — the read half of
   /// [upsertRouting].
   Future<Map<String, Object?>> getRouting(String routing) async =>

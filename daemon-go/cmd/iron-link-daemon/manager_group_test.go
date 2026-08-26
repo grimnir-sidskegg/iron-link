@@ -52,12 +52,16 @@ const groupFixtureProfile = `{
 }`
 
 func groupFixtureManager(t *testing.T) *manager {
+	return managerWithProfile(t, groupFixtureProfile)
+}
+
+func managerWithProfile(t *testing.T, profileJSON string) *manager {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "profiles"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "profiles", "main.json"), []byte(groupFixtureProfile), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "profiles", "main.json"), []byte(profileJSON), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(`{"active":"main"}`), 0o600); err != nil {
@@ -67,6 +71,60 @@ func groupFixtureManager(t *testing.T) *manager {
 	m.hub = ipc.NewHub(m.Snapshot)
 	m.socksPort = freePort(t)
 	return m
+}
+
+// subGroupProfile has a subscription "MySub" (id sub-1) with one node owned by
+// it — the fixture for the all_of_sub happy path.
+const subGroupProfile = `{
+  "schema_version": 2,
+  "name": "main",
+  "active_node_id": null,
+  "subscriptions": [
+    {"id": "sub-1", "name": "MySub", "url": "https://example.com/sub", "last_updated": "2026-08-26T00:00:00Z", "update_interval_sec": 86400, "enabled": true, "format": "auto"}
+  ],
+  "nodes": [
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "sub_id": "sub-1",
+      "profile": {"vless": {
+        "server_name": "sub-node",
+        "uuid": "88f2c0dc-a8e3-49f4-89b9-b3b54f1cad3a",
+        "address": "198.51.100.5", "port": 443, "encryption": "none",
+        "security": {"kind": "reality", "reality": {"sni": "example.com", "fp": "chrome",
+          "pbk": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY", "sid": "01ab"}},
+        "transport": {"kind": "tcp"}
+      }},
+      "preferences": {"core_override": null}
+    }
+  ],
+  "routing_configs": [],
+  "active_routing_id": null
+}`
+
+// TestUpsertGroupAllOfSubNormalizesToID: an all_of_sub group created by the
+// subscription NAME stores its ID, so membership resolves to the sub's nodes
+// (a name stored verbatim would match nothing).
+func TestUpsertGroupAllOfSubNormalizesToID(t *testing.T) {
+	m := managerWithProfile(t, subGroupProfile)
+
+	if r := m.Handle(api.Request{Command: api.CmdUpsertGroup,
+		Group: json.RawMessage(`{"name":"Auto","all_of_sub":"MySub"}`)}); r.Status != api.StatusOk {
+		t.Fatalf("create all_of_sub group by name: %+v", r)
+	}
+
+	resp := m.Handle(api.Request{Command: api.CmdListNodes})
+	var group *api.NodeInfo
+	for i := range resp.Nodes {
+		if resp.Nodes[i].Kind == api.NodeKindGroup {
+			group = &resp.Nodes[i]
+		}
+	}
+	if group == nil {
+		t.Fatal("the all_of_sub group was not listed")
+	}
+	if len(group.Members) != 1 || group.Members[0] != "22222222-2222-2222-2222-222222222222" {
+		t.Errorf("all_of_sub group resolved members = %v, want the sub's node", group.Members)
+	}
 }
 
 // TestGroupVerbsDoNotPanic sweeps the verbs a stored group flows through. None
@@ -129,6 +187,48 @@ func TestGroupVerbsDoNotPanic(t *testing.T) {
 	}
 	if len(plan.Natives) != 1 || len(plan.XrayNodes) != 0 || plan.Group != nil {
 		t.Errorf("plan must embed only the dialable node, not the group: %+v", plan)
+	}
+}
+
+// TestUpsertGroupCreateEditValidate exercises the user-group CRUD verb: create
+// over explicit members, edit in place, and the validation rejections.
+func TestUpsertGroupCreateEditValidate(t *testing.T) {
+	m := groupFixtureManager(t)
+	up := func(payload string) api.Response {
+		return m.Handle(api.Request{Command: api.CmdUpsertGroup, Group: json.RawMessage(payload)})
+	}
+
+	if r := up(`{"name":"My Auto","members":["11111111-1111-1111-1111-111111111111"],"probe":{"interval_sec":120}}`); r.Status != api.StatusOk {
+		t.Fatalf("create group: %+v", r)
+	}
+	// Neither / both membership modes.
+	if r := up(`{"name":"Empty"}`); r.Status != api.StatusError {
+		t.Errorf("no membership must error: %+v", r)
+	}
+	if r := up(`{"name":"Both","members":["11111111-1111-1111-1111-111111111111"],"all_of_sub":"s1"}`); r.Status != api.StatusError {
+		t.Errorf("both membership modes must error: %+v", r)
+	}
+	// Unknown member, a group as a member, missing subscription.
+	if r := up(`{"name":"Bad","members":["deadbeef-0000-0000-0000-000000000000"]}`); r.Status != api.StatusError {
+		t.Errorf("unknown member must error: %+v", r)
+	}
+	if r := up(`{"name":"Nested","members":["99999999-9999-9999-9999-999999999999"]}`); r.Status != api.StatusError {
+		t.Errorf("a group as a member must error: %+v", r)
+	}
+	if r := up(`{"name":"Sub","all_of_sub":"nope"}`); r.Status != api.StatusError {
+		t.Errorf("missing subscription must error: %+v", r)
+	}
+
+	// Edit the existing user group Auto in place (id preserved).
+	if r := up(`{"id":"99999999-9999-9999-9999-999999999999","name":"Auto Renamed","members":["11111111-1111-1111-1111-111111111111"]}`); r.Status != api.StatusOk {
+		t.Fatalf("edit group: %+v", r)
+	}
+	prof, err := m.store.LoadProfile("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := prof.FindNodeByID("99999999-9999-9999-9999-999999999999"); g == nil || g.DisplayName() != "Auto Renamed" {
+		t.Errorf("edit did not persist: %+v", g)
 	}
 }
 

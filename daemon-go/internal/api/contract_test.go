@@ -84,22 +84,31 @@ func jsonValue(t *testing.T, raw []byte) any {
 	return v
 }
 
-// requestsEqual compares Requests with RoutingConfig compared semantically
-// (raw bytes keep the fixture's formatting, which is not part of the contract).
+// requestsEqual compares Requests with the raw-JSON fields (RoutingConfig,
+// Group) compared semantically — their bytes keep the fixture's formatting,
+// which is not part of the contract.
 func requestsEqual(t *testing.T, a, b Request) bool {
 	t.Helper()
 	ac, bc := a.RoutingConfig, b.RoutingConfig
+	ag, bg := a.Group, b.Group
 	a.RoutingConfig, b.RoutingConfig = nil, nil
+	a.Group, b.Group = nil, nil
 	if !reflect.DeepEqual(a, b) {
 		return false
 	}
-	if (ac == nil) != (bc == nil) {
+	return rawEqual(t, ac, bc) && rawEqual(t, ag, bg)
+}
+
+// rawEqual compares two raw-JSON fields semantically (nil-aware).
+func rawEqual(t *testing.T, a, b json.RawMessage) bool {
+	t.Helper()
+	if (a == nil) != (b == nil) {
 		return false
 	}
-	if ac == nil {
+	if a == nil {
 		return true
 	}
-	return reflect.DeepEqual(jsonValue(t, ac), jsonValue(t, bc))
+	return reflect.DeepEqual(jsonValue(t, a), jsonValue(t, b))
 }
 
 // sharedRequests is what the Dart client emits; its exact serializer output
@@ -136,6 +145,7 @@ var sharedRequests = map[string]Request{
 	"select_routing":            {Command: CmdSelectRouting, Routing: ptr("basic")},
 	"get_routing":               {Command: CmdGetRouting, Routing: ptr("r1")},
 	"upsert_routing":            {Command: CmdUpsertRouting, RoutingConfig: json.RawMessage(`{"id":"r1","name":"basic","rule_sets":[],"rules":[],"default_target":"DefaultProxy"}`)},
+	"upsert_group":              {Command: CmdUpsertGroup, Group: json.RawMessage(`{"name":"My Auto","members":["3f2a","9b1c"],"probe":{"interval_sec":180}}`)},
 	"remove_routing":            {Command: CmdRemoveRouting, Routing: ptr("r1")},
 	"routing_schema":            {Command: CmdRoutingSchema},
 	"diagnose":                  {Command: CmdDiagnose, Node: ptr("tokyo")},

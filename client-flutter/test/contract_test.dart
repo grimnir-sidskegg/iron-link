@@ -91,6 +91,11 @@ final requestCases = <String, Request>{
     'rules': <Object?>[],
     'default_target': 'DefaultProxy',
   }),
+  'requests/upsert_group.json': const UpsertGroupRequest({
+    'name': 'My Auto',
+    'members': ['3f2a', '9b1c'],
+    'probe': {'interval_sec': 180},
+  }),
   'requests/get_settings.json': const GetSettingsRequest(),
   'requests/set_settings.json': SetSettingsRequest(Settings(
     logLevel: 'warn',

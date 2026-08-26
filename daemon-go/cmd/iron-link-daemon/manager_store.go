@@ -268,6 +268,70 @@ func (m *manager) setNodePrefs(req api.Request) api.Response {
 	})
 }
 
+// groupUpsert is the wire shape of an upsert_group payload: a user group's id
+// (empty = create), name, membership (EXACTLY one of Members / AllOfSub), and
+// probe tuning.
+type groupUpsert struct {
+	ID       string           `json:"id"`
+	Name     string           `json:"name"`
+	Members  []string         `json:"members"`
+	AllOfSub *string          `json:"all_of_sub"`
+	Probe    store.GroupProbe `json:"probe"`
+}
+
+// upsertGroup creates or edits a USER group (SubID nil). Membership is EITHER an
+// explicit list of existing dialable node ids OR every dialable node of a
+// subscription (all_of_sub) — never both, never neither. A missing id creates;
+// an existing user-group id replaces its spec in place.
+func (m *manager) upsertGroup(req api.Request) api.Response {
+	if len(req.Group) == 0 {
+		return errResp("upsert_group requires a group payload")
+	}
+	var g groupUpsert
+	if err := json.Unmarshal(req.Group, &g); err != nil {
+		return errResp("decode group: " + err.Error())
+	}
+	hasMembers := len(g.Members) > 0
+	hasSub := g.AllOfSub != nil && *g.AllOfSub != ""
+	if hasMembers == hasSub {
+		return errResp("a group needs exactly one of members or all_of_sub")
+	}
+	return m.withProfile(req, func(name string, p *store.Profile) (api.Response, error) {
+		spec := store.GroupSpec{Name: g.Name, Probe: g.Probe}
+		if hasSub {
+			// FindSubscription accepts an id OR a name; membership resolution
+			// (resolveGroupMemberIDs) matches a node's SubID, which is ALWAYS the
+			// subscription UUID — so normalize the stored ref to the id, else a
+			// name-based group would silently resolve to zero members.
+			sub := p.FindSubscription(*g.AllOfSub)
+			if sub == nil {
+				return api.Response{}, fmt.Errorf("subscription %q not found", *g.AllOfSub)
+			}
+			id := sub.ID
+			spec.AllOfSub = &id
+		} else {
+			for _, id := range g.Members {
+				member := p.FindNodeByID(id)
+				if member == nil || member.IsGroup() {
+					return api.Response{}, fmt.Errorf("group member %q is not a dialable node", id)
+				}
+			}
+			spec.Members = g.Members
+		}
+		if g.ID == "" {
+			id, err := p.AddGroup(spec)
+			if err != nil {
+				return api.Response{}, err
+			}
+			return api.Response{Status: api.StatusOk, Node: spec.Name, Message: "group created: " + spec.Name + " (" + id + ")"}, nil
+		}
+		if err := p.ReplaceGroupByID(g.ID, spec); err != nil {
+			return api.Response{}, err
+		}
+		return api.Response{Status: api.StatusOk, Node: spec.Name, Message: "group updated: " + spec.Name}, nil
+	})
+}
+
 func (m *manager) listSubscriptions(req api.Request) api.Response {
 	m.mu.Lock()
 	defer m.mu.Unlock()

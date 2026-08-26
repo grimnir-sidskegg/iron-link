@@ -415,3 +415,15 @@ final class UpsertRoutingRequest extends Request {
   Map<String, Object?> toJson() =>
       {'command': 'upsert_routing', 'routing_config': routingConfig};
 }
+
+/// `upsert_group` — a user group's spec JSON ({id?, name, members?/all_of_sub?,
+/// probe?}); a missing id creates a new user group, an existing user-group id
+/// replaces it in place.
+final class UpsertGroupRequest extends Request {
+  const UpsertGroupRequest(this.group);
+
+  final Map<String, Object?> group;
+
+  @override
+  Map<String, Object?> toJson() => {'command': 'upsert_group', 'group': group};
+}

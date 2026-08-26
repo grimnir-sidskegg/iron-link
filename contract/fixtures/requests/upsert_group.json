@@ -1,0 +1,1 @@
+{"command": "upsert_group", "group": {"name": "My Auto", "members": ["3f2a", "9b1c"], "probe": {"interval_sec": 180}}}

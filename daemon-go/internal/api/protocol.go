@@ -39,6 +39,7 @@ const (
 	CmdAddNode          = "add_node"
 	CmdRemoveNode       = "remove_node"
 	CmdSetNodePrefs     = "set_node_prefs"
+	CmdUpsertGroup      = "upsert_group"
 	CmdListSubs         = "list_subscriptions"
 	CmdAddSub           = "add_subscription"
 	CmdRefreshSubs      = "refresh_subscriptions"
@@ -139,6 +140,11 @@ type Request struct {
 	// set_settings: the FULL settings document (no patch semantics — the
 	// client edits what get_settings returned and sends it back)
 	Settings *Settings `json:"settings,omitempty"`
+
+	// upsert_group: the user-group spec JSON — {id?, name, members?/all_of_sub?,
+	// probe?}. A missing/empty id creates a new user group; an existing user
+	// group id replaces that group's spec in place. Removal reuses remove_node.
+	Group json.RawMessage `json:"group,omitempty"`
 }
 
 // ---- Response --------------------------------------------------------------

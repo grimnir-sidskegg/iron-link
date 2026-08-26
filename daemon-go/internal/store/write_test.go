@@ -327,6 +327,66 @@ func TestFindNodeByNameNodeBeatsGroup(t *testing.T) {
 	}
 }
 
+// TestGroupCRUD: a user group is added (SubID nil), edited in place (id kept),
+// and a provider group / dialable node cannot be edited as a user group.
+func TestGroupCRUD(t *testing.T) {
+	p := NewProfile("m")
+	id, err := p.AddGroup(GroupSpec{Name: "Auto", Members: []string{"a", "b"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := p.FindNodeByID(id); g == nil || !g.IsGroup() || g.SubID != nil {
+		t.Fatalf("user group not added as SubID-nil group: %+v", g)
+	}
+
+	if err := p.ReplaceGroupByID(id, GroupSpec{Name: "Auto2", Members: []string{"c"}}); err != nil {
+		t.Fatal(err)
+	}
+	if g := p.FindNodeByID(id); g == nil || g.DisplayName() != "Auto2" || len(g.Group.Members) != 1 {
+		t.Errorf("edit lost or churned the id: %+v", g)
+	}
+
+	// A provider group (SubID set) cannot be edited.
+	sub := "s1"
+	pg := NewGroupNode(GroupSpec{Name: "Prov"}, &sub)
+	p.Nodes = append(p.Nodes, pg)
+	if err := p.ReplaceGroupByID(pg.ID, GroupSpec{Name: "X", Members: []string{"a"}}); err == nil {
+		t.Error("editing a provider group must be refused")
+	}
+
+	// A dialable node id is not a group.
+	v := &proxy.VlessConfig{ServerName: "n", UUID: "u", Address: "1.1.1.1", Port: 443,
+		Encryption: "none", Security: proxy.Security{Kind: proxy.SecurityNone},
+		Transport: proxy.Transport{Kind: proxy.TransportTCP}}
+	nid := p.AddNode(NewNode(v, nil))
+	if err := p.ReplaceGroupByID(nid, GroupSpec{Name: "Y", Members: []string{"a"}}); err == nil {
+		t.Error("editing a dialable node as a group must be refused")
+	}
+
+	if _, err := p.AddGroup(GroupSpec{Name: "", Members: []string{"a"}}); err == nil {
+		t.Error("an empty group name must be refused")
+	}
+}
+
+// TestSetActiveNodeIfUnsetSkipsGroups: a group added first must NOT become the
+// silent auto-default; the first DIALABLE node does.
+func TestSetActiveNodeIfUnsetSkipsGroups(t *testing.T) {
+	p := NewProfile("m")
+	if _, err := p.AddGroup(GroupSpec{Name: "Auto", Members: []string{"x"}}); err != nil {
+		t.Fatal(err)
+	}
+	if p.ActiveNodeID != nil {
+		t.Fatalf("adding a group must not elect it active: %v", p.ActiveNodeID)
+	}
+	v := &proxy.VlessConfig{ServerName: "n1", UUID: "u1", Address: "1.1.1.1", Port: 443,
+		Encryption: "none", Security: proxy.Security{Kind: proxy.SecurityNone},
+		Transport: proxy.Transport{Kind: proxy.TransportTCP}}
+	nid := p.AddNode(NewNode(v, nil))
+	if p.ActiveNodeID == nil || *p.ActiveNodeID != nid {
+		t.Errorf("active = %v, want the dialable node %s (never the group)", p.ActiveNodeID, nid)
+	}
+}
+
 func TestRoutingMutators(t *testing.T) {
 	p := NewProfile("m")
 	if p.ActiveRouting() == nil || p.ActiveRouting().Name != "default" {

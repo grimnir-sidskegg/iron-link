@@ -137,6 +137,8 @@ func (m *manager) Handle(req api.Request) api.Response {
 		return m.removeNode(req)
 	case api.CmdSetNodePrefs:
 		return m.setNodePrefs(req)
+	case api.CmdUpsertGroup:
+		return m.upsertGroup(req)
 	case api.CmdListSubs:
 		return m.listSubscriptions(req)
 	case api.CmdAddSub:
