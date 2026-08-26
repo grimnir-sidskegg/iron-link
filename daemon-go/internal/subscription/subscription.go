@@ -134,14 +134,25 @@ func Refresh(ctx context.Context, p *store.Profile, only, ua string) []Result {
 			results = append(results, Result{SubID: sub.ID, Name: sub.Name, Err: err.Error()})
 			continue
 		}
+		// Order matters: reconcile the dialable nodes FIRST so their UUIDs are
+		// final, THEN resolve group membership to those UUIDs, THEN reconcile the
+		// groups (a provider group keeps its UUID across a refresh by name). Both
+		// reconciles read the OLD p.Nodes, so both must precede the replace.
 		newNodes := outcome.Nodes
 		reconcile(p, sub.ID, newNodes)
-		added, removed := diffNodes(p, sub.ID, newNodes)
+		groupNodes := materializeGroups(outcome.Groups, newNodes, sub.ID)
+		reconcile(p, sub.ID, groupNodes)
+		all := make([]store.Node, 0, len(newNodes)+len(groupNodes))
+		all = append(all, newNodes...)
+		all = append(all, groupNodes...)
+		added, removed := diffNodes(p, sub.ID, all)
 
-		p.ReplaceSubscriptionNodes(sub.ID, newNodes)
+		p.ReplaceSubscriptionNodes(sub.ID, all)
 		sub.LastUpdated = time.Now().UTC()
 		results = append(results, Result{
 			SubID: sub.ID, Name: sub.Name,
+			// Count is the DIALABLE node count; groups are not counted (diffNodes
+			// skips them too, so Added/Removed stay dialable-only).
 			Count: len(newNodes), Added: added, Removed: removed,
 			Format:       string(outcome.Format),
 			Entries:      outcome.Entries,
@@ -150,6 +161,40 @@ func Refresh(ctx context.Context, p *store.Profile, only, ua string) []Result {
 		})
 	}
 	return results
+}
+
+// materializeGroups turns the parse's frozen groups into stored group nodes:
+// each member key is resolved to the UUID of the (already reconciled) dialable
+// node that carries it, so a group references its members by their stable ids.
+// A member key that resolves to nothing is dropped; a group left with no
+// members is not stored. The group node's own UUID is minted fresh here and
+// then reconciled by the caller (matched by name) so it survives a refresh.
+func materializeGroups(groups []GroupOut, nodes []store.Node, subID string) []store.Node {
+	if len(groups) == 0 {
+		return nil
+	}
+	idByKey := make(map[prefsKey]string, len(nodes))
+	for i := range nodes {
+		idByKey[profileKey(nodes[i].Profile())] = nodes[i].ID
+	}
+	var out []store.Node
+	for _, g := range groups {
+		var members []string
+		for _, key := range g.MemberKeys {
+			if id, ok := idByKey[key]; ok {
+				members = append(members, id)
+			}
+		}
+		if len(members) == 0 {
+			continue
+		}
+		out = append(out, store.NewGroupNode(store.GroupSpec{
+			Name:    g.Name,
+			Members: members,
+			Probe:   g.Probe,
+		}, &subID))
+	}
+	return out
 }
 
 // diffNodes counts the identity changes a replace will make (matched by

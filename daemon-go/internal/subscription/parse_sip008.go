@@ -21,12 +21,12 @@ import (
 // when the body is not the dialect: it must decode as a JSON OBJECT whose
 // "servers" array has at least one element carrying both "server" and
 // "server_port" (a mere decode is no signal — see the package comment).
-func parseSIP008(body string) ([]rawEntry, bool) {
+func parseSIP008(body string) ([]rawEntry, []rawGroup, bool) {
 	var doc struct {
 		Servers []map[string]any `json:"servers"`
 	}
 	if err := json.Unmarshal([]byte(body), &doc); err != nil {
-		return nil, false
+		return nil, nil, false
 	}
 	structural := false
 	for _, s := range doc.Servers {
@@ -38,13 +38,14 @@ func parseSIP008(body string) ([]rawEntry, bool) {
 		}
 	}
 	if !structural {
-		return nil, false
+		return nil, nil, false
 	}
 	entries := make([]rawEntry, 0, len(doc.Servers))
 	for _, s := range doc.Servers {
 		entries = append(entries, rawEntry{links: sip008Links(s)})
 	}
-	return entries, true
+	// SIP008 is a flat server list — no group concept.
+	return entries, nil, true
 }
 
 // sip008Links converts one servers[] element into its ss:// link (nil when a

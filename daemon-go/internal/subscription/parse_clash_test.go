@@ -148,7 +148,7 @@ func TestParseClashFixture(t *testing.T) {
 
 func TestParseClashStructuralGates(t *testing.T) {
 	// A JSON body without `proxies` is valid YAML but not the dialect.
-	if _, ok := parseClash(`{"servers": []}`); ok {
+	if _, _, ok := parseClash(`{"servers": []}`); ok {
 		t.Error("JSON without proxies must not match clash")
 	}
 	// A proxies list with no usable element is no match either.
@@ -158,7 +158,7 @@ func TestParseClashStructuralGates(t *testing.T) {
 		"mode: rule\nlog-level: info",
 		"just a scalar",
 	} {
-		if _, ok := parseClash(body); ok {
+		if _, _, ok := parseClash(body); ok {
 			t.Errorf("body %q must not match clash", body)
 		}
 	}

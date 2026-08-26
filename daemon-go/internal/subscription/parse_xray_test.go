@@ -181,11 +181,11 @@ func TestParseXraySingleObject(t *testing.T) {
 
 func TestParseXrayStructuralGates(t *testing.T) {
 	// Outbounds keyed by "type" are a sing-box config — not this dialect.
-	if _, ok := parseXray(readFixture(t, "singbox.json")); ok {
+	if _, _, ok := parseXray(readFixture(t, "singbox.json")); ok {
 		t.Error("sing-box config must not match xray")
 	}
 	// And the sing-box parser must refuse the xray fixture in return.
-	if _, ok := parseSingBox(readFixture(t, "xray.json")); ok {
+	if _, _, ok := parseSingBox(readFixture(t, "xray.json")); ok {
 		t.Error("xray profile array must not match sing-box")
 	}
 	for _, body := range []string{
@@ -195,7 +195,7 @@ func TestParseXrayStructuralGates(t *testing.T) {
 		"vless://uuid@203.0.113.1:443#link",   // share link
 		"proxies: []",                         // clash YAML
 	} {
-		if _, ok := parseXray(body); ok {
+		if _, _, ok := parseXray(body); ok {
 			t.Errorf("body %q must not match xray", body)
 		}
 	}

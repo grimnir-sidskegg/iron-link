@@ -74,7 +74,7 @@ func TestParseSIP008UnsupportedPluginIsSkipped(t *testing.T) {
 
 func TestParseSIP008StructuralGates(t *testing.T) {
 	// A clash YAML body is not JSON at all.
-	if _, ok := parseSIP008(readFixture(t, "clash.yaml")); ok {
+	if _, _, ok := parseSIP008(readFixture(t, "clash.yaml")); ok {
 		t.Error("clash YAML must not match sip008")
 	}
 	for _, body := range []string{
@@ -84,7 +84,7 @@ func TestParseSIP008StructuralGates(t *testing.T) {
 		`[{"server": "203.0.113.1", "server_port": 1}]`, // array, not an object
 		"vless://uuid@203.0.113.1:443#link",
 	} {
-		if _, ok := parseSIP008(body); ok {
+		if _, _, ok := parseSIP008(body); ok {
 			t.Errorf("body %q must not match sip008", body)
 		}
 	}

@@ -20,6 +20,8 @@ import (
 	"github.com/sagernet/sing-box/option"
 	singjson "github.com/sagernet/sing/common/json"
 	"github.com/sagernet/sing/service"
+
+	"ironlink/daemon/internal/store"
 )
 
 // singBoxInfra are outbound types that are routing infrastructure, not nodes.
@@ -34,7 +36,7 @@ var singBoxInfra = map[string]bool{
 	C.TypeURLTest:  true,
 }
 
-func parseSingBox(body string) ([]rawEntry, bool) {
+func parseSingBox(body string) ([]rawEntry, []rawGroup, bool) {
 	// Structural gate with plain encoding/json: an object bearing an
 	// "outbounds" array whose elements are discriminated by "type". Xray
 	// bodies discriminate by "protocol" (and are usually arrays) and must
@@ -43,7 +45,7 @@ func parseSingBox(body string) ([]rawEntry, bool) {
 		Outbounds []json.RawMessage `json:"outbounds"`
 	}
 	if err := json.Unmarshal([]byte(body), &doc); err != nil || len(doc.Outbounds) == 0 {
-		return nil, false
+		return nil, nil, false
 	}
 	heads := make([]struct {
 		Type string `json:"type"`
@@ -54,7 +56,7 @@ func parseSingBox(body string) ([]rawEntry, bool) {
 		sawType = sawType || heads[i].Type != ""
 	}
 	if !sawType {
-		return nil, false
+		return nil, nil, false
 	}
 
 	ctx := singBoxOptionContext()
@@ -68,24 +70,77 @@ func parseSingBox(body string) ([]rawEntry, bool) {
 			}
 			entries = append(entries, singBoxEntry(ob))
 		}
-		return entries, true
+		return entries, singBoxGroups(options.Outbounds), true
 	}
 	// Providers ship half-valid configs (stale route sections, exotic outbound
 	// types). Fall back to per-outbound decoding so a broken outbound — or a
 	// broken section elsewhere — costs itself, not the document.
 	var entries []rawEntry
+	var outbounds []option.Outbound // the ones that decoded, for group resolution
 	for i, raw := range doc.Outbounds {
-		if singBoxInfra[heads[i].Type] {
+		if singBoxInfra[heads[i].Type] && heads[i].Type != C.TypeURLTest {
 			continue
 		}
 		ob, err := singjson.UnmarshalExtendedContext[option.Outbound](ctx, []byte(raw))
 		if err != nil {
-			entries = append(entries, rawEntry{}) // zero links → counted unrecognized
+			if heads[i].Type != C.TypeURLTest {
+				entries = append(entries, rawEntry{}) // zero links → counted unrecognized
+			}
 			continue
+		}
+		outbounds = append(outbounds, ob)
+		if singBoxInfra[ob.Type] {
+			continue // a group/infra outbound is not a node entry
 		}
 		entries = append(entries, singBoxEntry(ob))
 	}
-	return entries, true
+	return entries, singBoxGroups(outbounds), true
+}
+
+// singBoxGroups extracts the urltest auto-select groups from a sing-box config:
+// each urltest outbound becomes a rawGroup over the member outbounds it names
+// (resolved to their share links; a member sing-box cannot express as a link —
+// e.g. an xhttp node — is simply absent, an accepted loss). The group name is
+// the urltest tag; probe tuning comes from its url/interval/tolerance.
+func singBoxGroups(outbounds []option.Outbound) []rawGroup {
+	linkByTag := map[string]string{}
+	for _, ob := range outbounds {
+		if singBoxInfra[ob.Type] {
+			continue
+		}
+		if link, ok := singBoxLink(ob); ok {
+			linkByTag[ob.Tag] = link
+		}
+	}
+	var groups []rawGroup
+	for _, ob := range outbounds {
+		if ob.Type != C.TypeURLTest {
+			continue
+		}
+		o, ok := ob.Options.(*option.URLTestOutboundOptions)
+		if !ok {
+			continue
+		}
+		var links []string
+		for _, tag := range o.Outbounds {
+			if link, found := linkByTag[tag]; found {
+				links = append(links, link)
+			}
+		}
+		if len(links) == 0 {
+			continue
+		}
+		groups = append(groups, rawGroup{
+			name:  ob.Tag,
+			links: links,
+			probe: store.GroupProbe{
+				URL:         o.URL,
+				IntervalSec: uint32(o.Interval.Build().Seconds()),
+				Tolerance:   o.Tolerance,
+			},
+		})
+	}
+	return groups
 }
 
 // singBoxOptionContext mirrors engine.BuildBox's decode context: the include

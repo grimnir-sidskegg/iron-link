@@ -22,13 +22,30 @@ import (
 	"strings"
 
 	"github.com/xtls/xray-core/infra/conf"
+
+	"ironlink/daemon/internal/store"
 )
 
-// xrayProfileEntry is one document element: the v2rayN display name plus the
-// outbounds. Everything else (log/dns/inbounds/routing) is client tuning.
+// xrayProfileEntry is one document element: the v2rayN display name, the
+// outbounds, and — when the entry is a balancer config — the routing.balancers
+// that select among them plus the observatory that probes them. Everything else
+// (log/dns/inbounds, non-balancer routing) is client tuning.
 type xrayProfileEntry struct {
 	Remarks   string            `json:"remarks"`
 	Outbounds []json.RawMessage `json:"outbounds"`
+	Routing   struct {
+		Balancers []xrayBalancer `json:"balancers"`
+	} `json:"routing"`
+	BurstObservatory json.RawMessage `json:"burstObservatory"`
+	Observatory      json.RawMessage `json:"observatory"`
+}
+
+// xrayBalancer is one routing balancer: a tag plus the outbound-tag PREFIXES it
+// selects among (xray matches a balancer selector by prefix, so "proxy" selects
+// proxy, proxy-2, …).
+type xrayBalancer struct {
+	Tag      string   `json:"tag"`
+	Selector []string `json:"selector"`
 }
 
 // xrayOutboundShell is the outbound envelope. Settings stays raw for the
@@ -49,21 +66,21 @@ var xrayNonProxy = map[string]bool{
 	"loopback":  true,
 }
 
-func parseXray(body string) ([]rawEntry, bool) {
+func parseXray(body string) ([]rawEntry, []rawGroup, bool) {
 	trimmed := strings.TrimSpace(body)
 	var raws []json.RawMessage
 	switch {
 	case strings.HasPrefix(trimmed, "["):
 		if json.Unmarshal([]byte(trimmed), &raws) != nil {
-			return nil, false
+			return nil, nil, false
 		}
 	case strings.HasPrefix(trimmed, "{"):
 		if !json.Valid([]byte(trimmed)) {
-			return nil, false
+			return nil, nil, false
 		}
 		raws = []json.RawMessage{json.RawMessage(trimmed)}
 	default:
-		return nil, false
+		return nil, nil, false
 	}
 
 	// Structural gate: at least one element must carry an outbound keyed by
@@ -82,20 +99,23 @@ func parseXray(body string) ([]rawEntry, bool) {
 			}
 			_ = json.Unmarshal(ob, &head)
 			if head.Type != "" && head.Protocol == "" {
-				return nil, false
+				return nil, nil, false
 			}
 			sawProtocol = sawProtocol || head.Protocol != ""
 		}
 	}
 	if !sawProtocol {
-		return nil, false
+		return nil, nil, false
 	}
 
 	entries := make([]rawEntry, 0, len(docs))
+	var groups []rawGroup
 	for i := range docs {
-		entries = append(entries, xrayEntry(&docs[i]))
+		entry, gs := xrayEntry(&docs[i])
+		entries = append(entries, entry)
+		groups = append(groups, gs...)
 	}
-	return entries, true
+	return entries, groups, true
 }
 
 // pendingLink is a converted outbound awaiting its display name (the name
@@ -120,10 +140,14 @@ func (p *pendingLink) finish(name string) string {
 	return p.frag + "#" + url.QueryEscape(name)
 }
 
-// xrayEntry reduces one profile entry to links. Name precedence: remarks, then
-// the outbound tag, then the address; a multi-link entry (balancer) suffixes
-// each name with its member address so the nodes stay distinguishable.
-func xrayEntry(doc *xrayProfileEntry) rawEntry {
+// xrayEntry reduces one profile entry to links, and — when the entry is a
+// balancer config — to the auto-select group(s) over its members. Name
+// precedence: remarks, then the outbound tag, then the address; a multi-link
+// entry (balancer) suffixes each name with its member address so the nodes stay
+// distinguishable. A balancer entry emits its links AS WELL AS the group: the
+// members are ordinary nodes (and regional balancers carry servers found
+// nowhere else in the document), so node expansion is never skipped.
+func xrayEntry(doc *xrayProfileEntry) (rawEntry, []rawGroup) {
 	var pend []pendingLink
 	for _, raw := range doc.Outbounds {
 		var ob xrayOutboundShell
@@ -135,6 +159,11 @@ func xrayEntry(doc *xrayProfileEntry) rawEntry {
 		}
 		pend = append(pend, convertXrayOutbound(&ob)...)
 	}
+	// A balancer entry's members are suffixed with their address even when there
+	// is only one, so a lone balancer-only member gets a distinct name rather
+	// than bare remarks (which equals the group name).
+	fromBalancer := len(doc.Routing.Balancers) > 0
+	suffix := len(pend) > 1 || fromBalancer
 	links := make([]string, 0, len(pend))
 	for i := range pend {
 		name := doc.Remarks
@@ -144,12 +173,92 @@ func xrayEntry(doc *xrayProfileEntry) rawEntry {
 		if name == "" {
 			name = pend[i].addr
 		}
-		if len(pend) > 1 {
+		if suffix {
 			name += " · " + pend[i].addr
 		}
 		links = append(links, pend[i].finish(name))
 	}
-	return rawEntry{links: links}
+	return rawEntry{links: links, fromBalancer: fromBalancer}, xrayGroups(doc, pend, links)
+}
+
+// xrayGroups builds one rawGroup per routing balancer in the entry, pairing the
+// finished member links with their outbound tags: a member is any of the
+// entry's own outbounds whose tag has one of the balancer's selector strings as
+// a prefix (xray's balancer selection is prefix-based). The group name is the
+// entry's remarks when there is a single balancer (the placeholder-host entry
+// carries the "Auto" label in remarks), else the balancer's own tag so multiple
+// balancers stay distinct. Probe tuning comes from the entry's observatory.
+func xrayGroups(doc *xrayProfileEntry, pend []pendingLink, links []string) []rawGroup {
+	if len(doc.Routing.Balancers) == 0 || len(pend) == 0 {
+		return nil
+	}
+	probe := xrayProbe(doc)
+	single := len(doc.Routing.Balancers) == 1
+	var groups []rawGroup
+	for _, bal := range doc.Routing.Balancers {
+		var members []string
+		for i := range pend {
+			if tagHasPrefix(pend[i].tag, bal.Selector) {
+				members = append(members, links[i])
+			}
+		}
+		if len(members) == 0 {
+			continue
+		}
+		name := bal.Tag
+		if single && doc.Remarks != "" {
+			name = doc.Remarks
+		}
+		if name == "" {
+			continue
+		}
+		groups = append(groups, rawGroup{name: name, links: members, probe: probe})
+	}
+	return groups
+}
+
+// tagHasPrefix reports whether tag begins with any of the selector prefixes
+// (xray balancer selection semantics). An empty selector matches nothing.
+func tagHasPrefix(tag string, selector []string) bool {
+	for _, s := range selector {
+		if s != "" && strings.HasPrefix(tag, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// xrayProbe reads the group probe tuning from the entry's observatory: the
+// newer burstObservatory.pingConfig (destination + interval) first, else the
+// classic observatory (probeUrl + probeInterval). interval/probeInterval are
+// xray DURATION STRINGS ("3m", "90s"); a numeric decode would silently yield 0,
+// so they are decoded as strings and parsed. Tolerance has no xray analogue.
+func xrayProbe(doc *xrayProfileEntry) store.GroupProbe {
+	var probe store.GroupProbe
+	if len(doc.BurstObservatory) > 0 {
+		var bo struct {
+			PingConfig struct {
+				Destination string `json:"destination"`
+				Interval    string `json:"interval"`
+			} `json:"pingConfig"`
+		}
+		if json.Unmarshal(doc.BurstObservatory, &bo) == nil {
+			probe.URL = bo.PingConfig.Destination
+			probe.IntervalSec = durationSeconds(bo.PingConfig.Interval)
+			return probe
+		}
+	}
+	if len(doc.Observatory) > 0 {
+		var o struct {
+			ProbeURL      string `json:"probeUrl"`
+			ProbeInterval string `json:"probeInterval"`
+		}
+		if json.Unmarshal(doc.Observatory, &o) == nil {
+			probe.URL = o.ProbeURL
+			probe.IntervalSec = durationSeconds(o.ProbeInterval)
+		}
+	}
+	return probe
 }
 
 // convertXrayOutbound emits the links for one proxy outbound. An unsupported

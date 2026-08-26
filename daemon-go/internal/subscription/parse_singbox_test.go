@@ -165,7 +165,7 @@ func TestParseSingBoxStructuralGates(t *testing.T) {
 		"proxies: []",                            // clash YAML
 		"vless://uuid@203.0.113.1:443#link",      // share link
 	} {
-		if _, ok := parseSingBox(body); ok {
+		if _, _, ok := parseSingBox(body); ok {
 			t.Errorf("body %q must not match sing-box", body)
 		}
 	}

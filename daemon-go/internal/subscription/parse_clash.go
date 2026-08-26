@@ -29,22 +29,42 @@ import (
 	"encoding/json"
 	"net"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"ironlink/daemon/internal/store"
 )
 
-// parseClash converts a Clash/mihomo YAML subscription into share links.
-// ok=false when the body is not the dialect: it must YAML-decode AND yield a
-// `proxies` sequence with at least one map carrying both "type" and "server"
-// (a mere decode is no signal — any JSON body is also valid YAML).
-func parseClash(body string) ([]rawEntry, bool) {
+// clashReserved are the built-in policy targets a group member name can be —
+// never a real node, so they are dropped from a group's membership. Matched
+// case-SENSITIVELY: these are mihomo's exact reserved outbound names, so a user
+// proxy named "direct" or "Global" is a distinct, valid node, not a policy.
+var clashReserved = map[string]bool{
+	"DIRECT": true, "REJECT": true, "REJECT-DROP": true,
+	"PASS": true, "GLOBAL": true, "COMPATIBLE": true,
+}
+
+// parseClash converts a Clash/mihomo YAML subscription into share links and
+// url-test groups. ok=false when the body is not the dialect: it must
+// YAML-decode AND yield a `proxies` sequence with at least one map carrying both
+// "type" and "server" (a mere decode is no signal — any JSON body is also valid
+// YAML).
+//
+// proxy-groups is decoded as loose maps (NOT a typed struct): providers quote
+// scalars freely (interval: "300", include-all: "true"), and a typed decode
+// would fail the WHOLE body on the first such mismatch — even in a group type we
+// never extract — silently freezing the subscription. The tolerant readers
+// (clashInt/clashBool) coerce the shapes, exactly as the node path does.
+func parseClash(body string) ([]rawEntry, []rawGroup, bool) {
 	var doc struct {
-		Proxies []map[string]any `yaml:"proxies"`
+		Proxies     []map[string]any `yaml:"proxies"`
+		ProxyGroups []map[string]any `yaml:"proxy-groups"`
 	}
 	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
-		return nil, false
+		return nil, nil, false
 	}
 	structural := false
 	for _, p := range doc.Proxies {
@@ -56,13 +76,117 @@ func parseClash(body string) ([]rawEntry, bool) {
 		}
 	}
 	if !structural {
-		return nil, false
+		return nil, nil, false
 	}
 	entries := make([]rawEntry, 0, len(doc.Proxies))
 	for _, p := range doc.Proxies {
 		entries = append(entries, rawEntry{links: clashLinks(p)})
 	}
-	return entries, true
+	return entries, clashGroups(doc.Proxies, doc.ProxyGroups), true
+}
+
+// clashGroups builds a rawGroup per url-test proxy-group. Membership is the
+// group's explicit `proxies` (kept verbatim — mihomo does NOT filter these) plus
+// (with include-all / include-all-proxies) every convertible proxy SUBJECT to
+// filter (keep) then exclude-filter (drop); nested group refs, reserved
+// policies, the group's own name, and unconvertible nodes are always dropped.
+// mihomo compiles filters with a lookaround-capable engine; Go's RE2 cannot, so
+// a pattern that will not compile drops the WHOLE group (importing it with wrong
+// membership would be worse than not importing it).
+func clashGroups(proxies, groups []map[string]any) []rawGroup {
+	linkByName := map[string]string{}
+	var allNames []string
+	for _, p := range proxies {
+		name := clashString(p, "name")
+		links := clashLinks(p)
+		if name == "" || len(links) == 0 {
+			continue
+		}
+		if _, dup := linkByName[name]; !dup {
+			allNames = append(allNames, name)
+		}
+		linkByName[name] = links[0]
+	}
+	groupNames := map[string]bool{}
+	for _, g := range groups {
+		if n := clashString(g, "name"); n != "" {
+			groupNames[n] = true
+		}
+	}
+
+	var out []rawGroup
+	for _, g := range groups {
+		if clashString(g, "type") != "url-test" {
+			continue
+		}
+		name := clashString(g, "name")
+		if name == "" {
+			continue
+		}
+		var filterRe, excludeRe *regexp.Regexp
+		var err error
+		if f := clashString(g, "filter"); f != "" {
+			if filterRe, err = regexp.Compile(f); err != nil {
+				continue // RE2 cannot express this filter — drop the group
+			}
+		}
+		if ef := clashString(g, "exclude-filter"); ef != "" {
+			if excludeRe, err = regexp.Compile(ef); err != nil {
+				continue
+			}
+		}
+
+		var links []string
+		picked := map[string]bool{}
+		addMember := func(n string, filtered bool) {
+			if picked[n] || n == name || groupNames[n] || clashReserved[n] {
+				return
+			}
+			link, ok := linkByName[n]
+			if !ok {
+				return // a name we could not convert to a node
+			}
+			// filter/exclude-filter apply only to the include-all set; an
+			// explicitly listed proxy is always kept (mihomo semantics).
+			if filtered {
+				if filterRe != nil && !filterRe.MatchString(n) {
+					return
+				}
+				if excludeRe != nil && excludeRe.MatchString(n) {
+					return
+				}
+			}
+			picked[n] = true
+			links = append(links, link)
+		}
+		for _, n := range clashStrings(g, "proxies") {
+			addMember(n, false)
+		}
+		if clashBool(g, "include-all") || clashBool(g, "include-all-proxies") {
+			for _, n := range allNames {
+				addMember(n, true)
+			}
+		}
+		if len(links) == 0 {
+			continue
+		}
+		tolerance := clashInt(g, "tolerance")
+		if tolerance < 0 {
+			tolerance = 0
+		} else if tolerance > 65535 {
+			tolerance = 65535
+		}
+		out = append(out, rawGroup{
+			name:  name,
+			links: links,
+			probe: store.GroupProbe{
+				URL:         clashString(g, "url"),
+				IntervalSec: uint32(max(clashInt(g, "interval"), 0)),
+				Tolerance:   uint16(tolerance),
+			},
+		})
+	}
+	return out
 }
 
 // clashLinks converts one proxies[] map into its share link (nil when the
