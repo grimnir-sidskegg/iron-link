@@ -23,6 +23,13 @@ class _FakeClient extends DaemonClient {
   final bool running;
   final List<String> selected = [];
   final List<String> switched = [];
+  final List<String> probed = [];
+
+  @override
+  Future<List<LatencyResult>> testLatency([List<String>? nodes]) async {
+    if (nodes != null) probed.addAll(nodes);
+    return [for (final n in nodes ?? const <String>[]) LatencyResult(node: n)];
+  }
 
   /// The live node `status()` reports; a `switchNode` moves it (the daemon's
   /// synchronous selector swap, faked).
@@ -59,6 +66,12 @@ class _FakeClient extends DaemonClient {
 
 const tokyo = NodeInfo(id: 'n1', name: 'Tokyo');
 const osaka = NodeInfo(id: 'n2', name: 'Osaka', subId: 's1', active: true);
+const autoGroup = NodeInfo(
+    id: 'g1',
+    name: 'Auto',
+    kind: 'group',
+    members: ['n1', 'n2'],
+    active: true);
 const mySub = SubscriptionInfo(
     id: 's1', name: 'MySub', url: 'https://example.com/a', nodeCount: 1);
 const emptySub = SubscriptionInfo(
@@ -105,6 +118,65 @@ void main() {
     await tester.tap(find.text('MySub'));
     await tester.pump();
     expect(find.text('Osaka'), findsOneWidget);
+  });
+
+  testWidgets('a group renders auto chips and a trimmed menu', (tester) async {
+    final client = _FakeClient(nodes: [autoGroup]);
+    await _pumpHome(tester, client);
+
+    expect(find.text('Auto'), findsOneWidget);
+    expect(find.text('auto'), findsOneWidget); // the group badge
+    expect(find.text('2 nodes'), findsOneWidget); // the member count
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    // A group keeps switch/select/remove but has no endpoint to probe, diagnose,
+    // or pin a core to.
+    expect(find.text('Switch traffic here'), findsOneWidget);
+    expect(find.text('Set as profile default'), findsOneWidget);
+    expect(find.text('Remove'), findsOneWidget);
+    expect(find.text('Test latency'), findsNothing);
+    expect(find.text('Diagnose'), findsNothing);
+    expect(find.text('Pin to sing-box'), findsNothing);
+  });
+
+  testWidgets('"Test all" skips groups (a group has no endpoint to probe)',
+      (tester) async {
+    final client = _FakeClient(nodes: [tokyo, osaka, autoGroup]);
+    await _pumpHome(tester, client);
+
+    await tester.tap(find.text('Test all'));
+    await tester.pumpAndSettle();
+
+    expect(client.probed, containsAll(<String>['Tokyo', 'Osaka']));
+    expect(client.probed, isNot(contains('Auto')));
+  });
+
+  testWidgets('an active running group shows the live member badge',
+      (tester) async {
+    final client = _FakeClient(nodes: [autoGroup], running: true)
+      ..liveNode = 'Frankfurt';
+    final session = DaemonSession(client);
+    session.entries = const [
+      CoreEntry(role: 'tun', state: 'running'),
+      CoreEntry(role: 'proxy', state: 'running'),
+    ];
+    session.activeNodeLive = 'Frankfurt';
+    addTearDown(session.dispose);
+
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+        MaterialApp(home: HomePage(client: client, session: session)));
+    // The running StatusHeader animates forever, so pumpAndSettle would hang —
+    // step fixed frames to let _load()'s canned futures land instead.
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+
+    // The group is active and the urltest's live pick is a different member.
+    expect(find.text('now: Frankfurt'), findsOneWidget);
   });
 
   testWidgets('a subscription with no nodes shows the placeholder row',

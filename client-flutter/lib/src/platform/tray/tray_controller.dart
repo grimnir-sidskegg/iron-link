@@ -127,18 +127,31 @@ abstract class TrayController with WindowListener {
       for (final node in _nodes)
         TrayMenuItem(
           id: id++,
-          labelFn: () => '${_isCurrentNode(node) ? '●' : '○'}  ${node.name}',
+          labelFn: () =>
+              '${_isCurrentNode(node) ? '●' : '○'}  ${node.name}${node.isGroup ? '  (auto)' : ''}',
           enabled: () => !_busy,
           onClick: () => unawaited(_selectNode(node)),
         ),
     ];
   }
 
-  // When running, the live node wins (a urltest auto-switch can differ from the
-  // persisted default); otherwise the persisted default (NodeInfo.active).
+  // The current-node marker. When running, the marker is derived from the FRESH
+  // session (session.active / activeNodeLive), NOT from the possibly-stale
+  // _nodes.active flags: a switch done in the app window refreshes the session
+  // but emits no store event, so _nodes is not refetched. The activated node's
+  // name is session.active.node; when it differs from the live node, a GROUP is
+  // active (its urltest picked a member) and the marker stays on the GROUP, not
+  // the member. Otherwise the live node wins. Idle falls back to the persisted
+  // default (NodeInfo.active).
   bool _isCurrentNode(NodeInfo node) {
     final live = session.activeNodeLive;
-    if (session.isRunning && live != null) return node.name == live;
+    if (session.isRunning && live != null) {
+      final activeName = session.active?.node;
+      if (activeName != null && activeName != live) {
+        return node.name == activeName; // a group owns the live member
+      }
+      return node.name == live;
+    }
     return node.active;
   }
 

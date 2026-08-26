@@ -562,9 +562,13 @@ class _HomePageState extends State<HomePage> {
           IronButton(
             label: 'Test all',
             icon: Icons.speed,
-            onPressed: nodes == null || nodes.isEmpty
+            // A group has no endpoint to probe; only dialable nodes are tested.
+            onPressed: nodes == null || !nodes.any((n) => !n.isGroup)
                 ? null
-                : () => _probe(nodes.map((n) => n.name).toList()),
+                : () => _probe(nodes
+                    .where((n) => !n.isGroup)
+                    .map((n) => n.name)
+                    .toList()),
           ),
           const SizedBox(width: 8),
           IronButton(
@@ -637,15 +641,28 @@ class _HomePageState extends State<HomePage> {
                   spacing: 6,
                   runSpacing: 4,
                   children: [
-                    // The proxy protocol (vless/shadowsocks/vmess/trojan/
-                    // hysteria2/…), then the transport/security kinds when the
-                    // protocol has them (QUIC protocols like hysteria2/tuic
-                    // carry neither).
-                    if (node.protocol.isNotEmpty) IronKindChip(node.protocol),
-                    if (node.transport.isNotEmpty) IronKindChip(node.transport),
-                    if (node.security.isNotEmpty) IronKindChip(node.security),
-                    if (node.coreOverride != null)
-                      IronKindChip('pin: ${node.coreOverride}', accent: true),
+                    if (node.isGroup) ...[
+                      // A group ("Auto"): the auto badge, its member count, and —
+                      // when it is the active node and the live pick differs — the
+                      // member currently carrying traffic ("now: X").
+                      IronKindChip('auto', accent: true),
+                      IronKindChip('${node.members.length} nodes'),
+                      if (node.active &&
+                          widget.session.isRunning &&
+                          live != null &&
+                          live != node.name)
+                        IronKindChip('now: $live', accent: true),
+                    ] else ...[
+                      // The proxy protocol (vless/shadowsocks/vmess/trojan/
+                      // hysteria2/…), then the transport/security kinds when the
+                      // protocol has them (QUIC protocols like hysteria2/tuic
+                      // carry neither).
+                      if (node.protocol.isNotEmpty) IronKindChip(node.protocol),
+                      if (node.transport.isNotEmpty) IronKindChip(node.transport),
+                      if (node.security.isNotEmpty) IronKindChip(node.security),
+                      if (node.coreOverride != null)
+                        IronKindChip('pin: ${node.coreOverride}', accent: true),
+                    ],
                   ],
                 ),
               ],
@@ -654,7 +671,11 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(width: 8),
           SizedBox(
             width: 64,
-            child: _probing.contains(node.name)
+            // A group has no latency of its own (its members are probed
+            // individually) — no spinner, no reading.
+            child: node.isGroup
+                ? null
+                : _probing.contains(node.name)
                 ? Center(
                     child: SizedBox(
                       width: 16,
@@ -685,26 +706,34 @@ class _HomePageState extends State<HomePage> {
                 value: 'select',
                 child: Text('Set as profile default'),
               ),
-              const PopupMenuItem(value: 'test', child: Text('Test latency')),
-              const PopupMenuItem(value: 'diagnose', child: Text('Diagnose')),
-              const PopupMenuDivider(),
-              PopupMenuItem(
-                value: 'pin_sing',
-                child: Text(
-                  node.coreOverride == CoreType.singBox
-                      ? '✓ Pin to sing-box'
-                      : 'Pin to sing-box',
+              // A group has no endpoint of its own: latency, diagnosis, and a
+              // core pin apply to its members, not to it.
+              if (!node.isGroup) ...[
+                const PopupMenuDivider(),
+                const PopupMenuItem(value: 'test', child: Text('Test latency')),
+                const PopupMenuItem(value: 'diagnose', child: Text('Diagnose')),
+                const PopupMenuDivider(),
+                PopupMenuItem(
+                  value: 'pin_sing',
+                  child: Text(
+                    node.coreOverride == CoreType.singBox
+                        ? '✓ Pin to sing-box'
+                        : 'Pin to sing-box',
+                  ),
                 ),
-              ),
-              PopupMenuItem(
-                value: 'pin_xray',
-                child: Text(
-                  node.coreOverride == CoreType.xray
-                      ? '✓ Pin to xray'
-                      : 'Pin to xray',
+                PopupMenuItem(
+                  value: 'pin_xray',
+                  child: Text(
+                    node.coreOverride == CoreType.xray
+                        ? '✓ Pin to xray'
+                        : 'Pin to xray',
+                  ),
                 ),
-              ),
-              const PopupMenuItem(value: 'pin_clear', child: Text('Clear pin')),
+                const PopupMenuItem(
+                  value: 'pin_clear',
+                  child: Text('Clear pin'),
+                ),
+              ],
               const PopupMenuDivider(),
               const PopupMenuItem(value: 'remove', child: Text('Remove')),
             ],
