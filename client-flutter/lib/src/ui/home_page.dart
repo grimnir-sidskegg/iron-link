@@ -181,6 +181,72 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  /// The "New" button's menu: add a link/subscription, or build an auto group.
+  /// A group is a client-side construct over nodes that already exist, so its
+  /// entry sits beside Add rather than replacing it.
+  Future<void> _showNewMenu() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.link),
+              title: const Text('Link or subscription'),
+              subtitle: const Text('Add a share link or a subscription URL'),
+              onTap: () => Navigator.pop(context, 'add'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.bolt),
+              title: const Text('Auto group'),
+              subtitle:
+                  const Text('A group that auto-picks the fastest node'),
+              onTap: () => Navigator.pop(context, 'group'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    switch (choice) {
+      case 'add':
+        await _add();
+      case 'group':
+        await _newGroup();
+    }
+  }
+
+  /// Build a new user "Auto" group over the nodes/subscriptions that exist. A
+  /// group has nothing to reference on a profile with neither, so bail early
+  /// with a hint; otherwise ensure a profile, prompt for the spec, and upsert.
+  /// Only subscriptions that actually resolve to a dialable member are offered
+  /// as an "all of subscription" target — an all_of_sub over a still-empty
+  /// subscription would build a dead urltest over zero nodes.
+  Future<void> _newGroup() async {
+    final nodes = _nodes, subs = _subs;
+    if (nodes == null || subs == null) return;
+    final dialable = nodes.where((n) => !n.isGroup).toList();
+    final groupableSubIds = {
+      for (final n in dialable)
+        if (n.subId != null) n.subId,
+    };
+    final groupableSubs =
+        subs.where((s) => groupableSubIds.contains(s.id)).toList();
+    if (dialable.isEmpty && groupableSubs.isEmpty) {
+      showSnack(context, 'Add nodes or a subscription first', error: true);
+      return;
+    }
+    if (!await _ensureActiveProfile() || !mounted) return;
+    final spec =
+        await promptNewGroup(context, dialable: dialable, subs: groupableSubs);
+    if (spec == null || !mounted) return;
+    if (await guardOk(context, () => widget.client.upsertGroup(spec))) {
+      if (mounted) showSnack(context, 'Group created');
+      _load();
+    }
+  }
+
   /// One Add for both kinds: http(s):// URLs are fetched as a subscription,
   /// anything else is parsed as a single node. (This is how the old Rust CLI
   /// took a link — no node-vs-sub picker.)
@@ -458,9 +524,9 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       backgroundColor: t.panel,
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _add,
+        onPressed: _showNewMenu,
         icon: const Icon(Icons.add),
-        label: const Text('Add'),
+        label: const Text('New'),
       ),
       body: CustomScrollView(
         controller: _scroll,

@@ -24,6 +24,16 @@ class _FakeClient extends DaemonClient {
   final List<String> selected = [];
   final List<String> switched = [];
   final List<String> probed = [];
+  final List<Map<String, Object?>> upsertedGroups = [];
+
+  @override
+  Future<ProfilesResponse> listProfiles() async =>
+      const ProfilesResponse(profiles: ['main'], activeProfile: 'main');
+
+  @override
+  Future<void> upsertGroup(Map<String, Object?> group) async {
+    upsertedGroups.add(group);
+  }
 
   @override
   Future<List<LatencyResult>> testLatency([List<String>? nodes]) async {
@@ -177,6 +187,106 @@ void main() {
 
     // The group is active and the urltest's live pick is a different member.
     expect(find.text('now: Frankfurt'), findsOneWidget);
+  });
+
+  testWidgets('the New button offers building an auto group over the nodes',
+      (tester) async {
+    final client = _FakeClient(nodes: [tokyo, osaka], subs: [mySub]);
+    await _pumpHome(tester, client);
+
+    // New → the two-way menu → Auto group opens the group editor.
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Link or subscription'), findsOneWidget);
+    await tester.tap(find.text('Auto group'));
+    await tester.pumpAndSettle();
+    expect(find.text('New auto group'), findsOneWidget);
+
+    // Name it, pick a node (Tokyo appears both in the list behind the dialog
+    // and in the picker — scope to the dialog's checkbox tile).
+    await tester.enterText(
+        find
+            .descendant(
+                of: find.byType(AlertDialog), matching: find.byType(TextField))
+            .first,
+        'My Auto');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(CheckboxListTile, 'Tokyo'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+    await tester.pumpAndSettle();
+
+    expect(client.upsertedGroups, hasLength(1));
+    final spec = client.upsertedGroups.single;
+    expect(spec['name'], 'My Auto');
+    expect(spec['members'], ['n1']); // Tokyo's id
+    expect(spec.containsKey('all_of_sub'), isFalse);
+  });
+
+  testWidgets('the group editor can target a whole subscription',
+      (tester) async {
+    // osaka belongs to mySub, so mySub is a groupable all_of_sub target.
+    final client = _FakeClient(nodes: [osaka], subs: [mySub]);
+    await _pumpHome(tester, client);
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Auto group'));
+    await tester.pumpAndSettle();
+
+    // Both modes are available; switch from Pick nodes to Whole subscription
+    // (the dropdown pre-selects the only groupable subscription).
+    await tester.tap(find.text('Whole subscription'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find
+            .descendant(
+                of: find.byType(AlertDialog), matching: find.byType(TextField))
+            .first,
+        'Sub Auto');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+    await tester.pumpAndSettle();
+
+    final spec = client.upsertedGroups.single;
+    expect(spec['name'], 'Sub Auto');
+    expect(spec['all_of_sub'], 's1');
+    expect(spec.containsKey('members'), isFalse);
+  });
+
+  testWidgets('the group editor rejects an out-of-uint32 re-rank interval',
+      (tester) async {
+    final client = _FakeClient(nodes: [tokyo], subs: const []);
+    await _pumpHome(tester, client);
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Auto group'));
+    await tester.pumpAndSettle();
+
+    final dialogField = find.descendant(
+        of: find.byType(AlertDialog), matching: find.byType(TextField));
+    await tester.enterText(dialogField.first, 'My Auto'); // name
+    await tester.tap(find.widgetWithText(CheckboxListTile, 'Tokyo'));
+    await tester.pumpAndSettle();
+
+    // An interval past uint32 disables Create (rather than reaching the daemon
+    // as an unmarshalable value) and surfaces the range hint.
+    await tester.enterText(dialogField.at(1), '5000000000');
+    await tester.pumpAndSettle();
+    expect(find.text('must be 1…4294967295'), findsOneWidget);
+    expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, 'Create'))
+            .onPressed,
+        isNull);
+
+    // A valid interval re-enables Create and rides through on the spec.
+    await tester.enterText(dialogField.at(1), '120');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+    await tester.pumpAndSettle();
+    expect((client.upsertedGroups.single['probe'] as Map)['interval_sec'], 120);
   });
 
   testWidgets('a subscription with no nodes shows the placeholder row',

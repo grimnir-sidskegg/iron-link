@@ -125,6 +125,223 @@ Future<String?> promptProfileName(BuildContext context) {
   );
 }
 
+/// The membership mode of a user group: an explicit hand-picked set of
+/// dialable nodes, or every dialable node of one subscription (all_of_sub).
+enum GroupMode { nodes, subscription }
+
+/// Prompts to build a NEW user group (an "Auto" node): a name, a membership
+/// mode (a hand-picked set of nodes OR a whole subscription), and optional
+/// probe tuning (re-rank interval / probe URL). Resolves to the `upsert_group`
+/// spec map ({name, members|all_of_sub, probe?}), or null on cancel.
+///
+/// [dialable] are the profile's dialable nodes (groups already excluded) and
+/// [subs] its subscriptions; the caller guarantees at least one is non-empty.
+/// A mode whose source is empty is hidden, and Create stays disabled until the
+/// name is set and the active mode has a valid selection.
+Future<Map<String, Object?>?> promptNewGroup(
+  BuildContext context, {
+  required List<NodeInfo> dialable,
+  required List<SubscriptionInfo> subs,
+}) {
+  final nameController = TextEditingController();
+  final intervalController = TextEditingController();
+  final urlController = TextEditingController();
+  final selected = <String>{};
+  final canNodes = dialable.isNotEmpty;
+  final canSub = subs.isNotEmpty;
+  var mode = canNodes ? GroupMode.nodes : GroupMode.subscription;
+  var subId = subs.isNotEmpty ? subs.first.id : null;
+  final subName = {for (final s in subs) s.id: s.name};
+
+  return showDialog<Map<String, Object?>>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) {
+        final name = nameController.text.trim();
+        // The daemon stores interval_sec as a uint32; an empty field means
+        // "use the sing-box default", anything else must be a positive uint32
+        // — validate it client-side so an out-of-range value disables Create
+        // rather than sailing past to an opaque daemon unmarshal error.
+        final intervalText = intervalController.text.trim();
+        final intervalNum = int.tryParse(intervalText);
+        final intervalOk = intervalText.isEmpty ||
+            (intervalNum != null && intervalNum > 0 && intervalNum <= 0xFFFFFFFF);
+        final membershipOk =
+            mode == GroupMode.nodes ? selected.isNotEmpty : subId != null;
+        final valid = name.isNotEmpty && membershipOk && intervalOk;
+
+        Map<String, Object?> spec() {
+          final group = <String, Object?>{'name': name};
+          if (mode == GroupMode.nodes) {
+            group['members'] = selected.toList();
+          } else {
+            group['all_of_sub'] = subId;
+          }
+          final probe = <String, Object?>{};
+          if (intervalNum != null) probe['interval_sec'] = intervalNum;
+          final url = urlController.text.trim();
+          if (url.isNotEmpty) probe['url'] = url;
+          if (probe.isNotEmpty) group['probe'] = probe;
+          return group;
+        }
+
+        return AlertDialog(
+          title: const Text('New auto group'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Name',
+                      hintText: '⚡ Auto',
+                      helperText: 'The group auto-picks the fastest member '
+                          'by latency',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 16),
+                  if (canNodes && canSub) ...[
+                    SegmentedButton<GroupMode>(
+                      segments: const [
+                        ButtonSegment(
+                            value: GroupMode.nodes, label: Text('Pick nodes')),
+                        ButtonSegment(
+                            value: GroupMode.subscription,
+                            label: Text('Whole subscription')),
+                      ],
+                      selected: {mode},
+                      onSelectionChanged: (s) => setState(() => mode = s.first),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (mode == GroupMode.nodes)
+                    _NodePicker(
+                      dialable: dialable,
+                      selected: selected,
+                      subName: subName,
+                      onChanged: () => setState(() {}),
+                    )
+                  else
+                    DropdownButtonFormField<String>(
+                      initialValue: subId,
+                      decoration:
+                          const InputDecoration(labelText: 'Subscription'),
+                      items: [
+                        for (final s in subs)
+                          DropdownMenuItem(
+                              value: s.id,
+                              child: Text(s.name.isNotEmpty ? s.name : s.url)),
+                      ],
+                      onChanged: (v) => setState(() => subId = v),
+                    ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: intervalController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Re-rank interval (seconds)',
+                      helperText: 'optional — default 180',
+                      errorText: intervalOk ? null : 'must be 1…4294967295',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: urlController,
+                    decoration: const InputDecoration(
+                      labelText: 'Probe URL',
+                      helperText: 'optional — default: the built-in 204 check',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel')),
+            FilledButton(
+              onPressed: valid ? () => Navigator.pop(context, spec()) : null,
+              child: const Text('Create'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+/// The bounded, scrollable multi-select of dialable nodes inside
+/// [promptNewGroup] — each row a checkbox with the node name and, when the
+/// node belongs to a subscription, that subscription's name as a subtitle.
+class _NodePicker extends StatelessWidget {
+  const _NodePicker({
+    required this.dialable,
+    required this.selected,
+    required this.subName,
+    required this.onChanged,
+  });
+
+  final List<NodeInfo> dialable;
+  final Set<String> selected;
+  final Map<String, String> subName;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 4),
+          child: Text('${selected.length} of ${dialable.length} selected',
+              style: t.textTheme.bodySmall),
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: t.dividerColor),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: SizedBox(
+            height: 220,
+            // No explicit Scrollbar: the desktop MaterialScrollBehavior already
+            // wraps the ListView in a controller-backed one — adding a second,
+            // controllerless Scrollbar stacks a non-interactive thumb over it.
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final n in dialable)
+                  CheckboxListTile(
+                    dense: true,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    value: selected.contains(n.id),
+                    title: Text(n.name, overflow: TextOverflow.ellipsis),
+                    subtitle: n.subId != null && subName[n.subId] != null
+                        ? Text(subName[n.subId]!,
+                            overflow: TextOverflow.ellipsis)
+                        : null,
+                    onChanged: (v) {
+                      v == true ? selected.add(n.id) : selected.remove(n.id);
+                      onChanged();
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// The subscription parse formats the daemon accepts, in dropdown order.
 const _subscriptionFormats = [
   'auto', 'links', 'xray', 'sing-box', 'clash', 'sip008',
