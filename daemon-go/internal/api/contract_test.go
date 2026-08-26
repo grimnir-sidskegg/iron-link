@@ -146,6 +146,7 @@ var sharedRequests = map[string]Request{
 	"get_routing":               {Command: CmdGetRouting, Routing: ptr("r1")},
 	"upsert_routing":            {Command: CmdUpsertRouting, RoutingConfig: json.RawMessage(`{"id":"r1","name":"basic","rule_sets":[],"rules":[],"default_target":"DefaultProxy"}`)},
 	"upsert_group":              {Command: CmdUpsertGroup, Group: json.RawMessage(`{"name":"My Auto","members":["3f2a","9b1c"],"probe":{"interval_sec":180}}`)},
+	"get_group":                 {Command: CmdGetGroup, Node: ptr("Auto")},
 	"remove_routing":            {Command: CmdRemoveRouting, Routing: ptr("r1")},
 	"routing_schema":            {Command: CmdRoutingSchema},
 	"diagnose":                  {Command: CmdDiagnose, Node: ptr("tokyo")},
@@ -317,6 +318,9 @@ var sharedResponses = map[string]Response{
 	// check compares raw bytes; the daemon emits whatever json.Marshal of the
 	// stored config produced).
 	"routing_config": {Status: StatusRoutingConfig, RoutingConfig: json.RawMessage(`{"id": "r1", "name": "basic", "rule_sets": [], "rules": [{"target": "DefaultProxy", "domain_keyword": ["example.com"]}], "default_target": "Direct"}`)},
+	// get_group's read half: the stored spec's bytes must byte-match the fixture
+	// (the round-trip check compares the raw payload).
+	"group_config": {Status: StatusGroupConfig, GroupConfig: json.RawMessage(`{"name": "Auto", "all_of_sub": "s1", "probe": {"interval_sec": 180}}`)},
 	"routing_schema": {Status: StatusRoutingSchema, RoutingSchema: routingSchemaLinuxDoc()},
 	"diagnosis": {Status: StatusDiagnosis, Diagnosis: &DiagnosisInfo{
 		Node: "tokyo", OK: false, FailedStage: "tls",

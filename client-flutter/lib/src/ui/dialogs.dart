@@ -129,28 +129,104 @@ Future<String?> promptProfileName(BuildContext context) {
 /// dialable nodes, or every dialable node of one subscription (all_of_sub).
 enum GroupMode { nodes, subscription }
 
-/// Prompts to build a NEW user group (an "Auto" node): a name, a membership
-/// mode (a hand-picked set of nodes OR a whole subscription), and optional
-/// probe tuning (re-rank interval / probe URL). Resolves to the `upsert_group`
-/// spec map ({name, members|all_of_sub, probe?}), or null on cancel.
+/// A group's current spec, for pre-filling [promptGroupEditor] on edit. Built
+/// from the `get_group` reply (which carries the true membership mode and probe
+/// — the resolved `list_nodes` row does not).
+class GroupInitial {
+  const GroupInitial({
+    required this.name,
+    required this.mode,
+    this.members = const {},
+    this.subId,
+    this.intervalSec,
+    this.probeUrl,
+  });
+
+  /// Decodes a `get_group` spec map into the editor's initial state. An
+  /// `all_of_sub` present ⇒ subscription mode; otherwise the explicit-members
+  /// mode. Probe fields are optional.
+  factory GroupInitial.fromSpec(Map<String, Object?> spec) {
+    final probe = spec['probe'];
+    int? interval;
+    String? url;
+    if (probe is Map) {
+      final iv = probe['interval_sec'];
+      if (iv is num) interval = iv.toInt();
+      final u = probe['url'];
+      if (u is String && u.isNotEmpty) url = u;
+    }
+    final name = spec['name'] is String ? spec['name'] as String : '';
+    final allOfSub = spec['all_of_sub'];
+    if (allOfSub is String && allOfSub.isNotEmpty) {
+      return GroupInitial(
+          name: name,
+          mode: GroupMode.subscription,
+          subId: allOfSub,
+          intervalSec: interval,
+          probeUrl: url);
+    }
+    final members = <String>{
+      if (spec['members'] is List)
+        for (final m in spec['members'] as List)
+          if (m is String) m,
+    };
+    return GroupInitial(
+        name: name,
+        mode: GroupMode.nodes,
+        members: members,
+        intervalSec: interval,
+        probeUrl: url);
+  }
+
+  final String name;
+  final GroupMode mode;
+  final Set<String> members;
+  final String? subId;
+  final int? intervalSec;
+  final String? probeUrl;
+}
+
+/// Prompts to build or edit a user group (an "Auto" node): a name, a membership
+/// mode (a hand-picked set of nodes OR a whole subscription), and optional probe
+/// tuning (re-rank interval / probe URL). Resolves to the `upsert_group` spec map
+/// ({name, members|all_of_sub, probe?}) — the caller injects the id on edit — or
+/// null on cancel.
 ///
 /// [dialable] are the profile's dialable nodes (groups already excluded) and
-/// [subs] its subscriptions; the caller guarantees at least one is non-empty.
-/// A mode whose source is empty is hidden, and Create stays disabled until the
-/// name is set and the active mode has a valid selection.
-Future<Map<String, Object?>?> promptNewGroup(
+/// [subs] its subscriptions; the caller guarantees at least one is non-empty
+/// (and, on edit, that [initial]'s subscription is present in [subs]). A mode
+/// whose source is empty is hidden, and Save stays disabled until the name is
+/// set and the active mode has a valid selection. [initial] pre-fills the form
+/// for an edit; null is a fresh create.
+Future<Map<String, Object?>?> promptGroupEditor(
   BuildContext context, {
   required List<NodeInfo> dialable,
   required List<SubscriptionInfo> subs,
+  GroupInitial? initial,
 }) {
-  final nameController = TextEditingController();
-  final intervalController = TextEditingController();
-  final urlController = TextEditingController();
-  final selected = <String>{};
+  final editing = initial != null;
+  final nameController = TextEditingController(text: initial?.name ?? '');
+  final intervalController = TextEditingController(
+      text: initial?.intervalSec != null ? '${initial!.intervalSec}' : '');
+  final urlController = TextEditingController(text: initial?.probeUrl ?? '');
+  final dialableIds = {for (final n in dialable) n.id};
+  // Stale stored members (a churned node) have no checkbox — drop them so an
+  // edit never re-submits a member id the daemon would reject.
+  final selected = <String>{
+    if (initial != null) ...initial.members.where(dialableIds.contains),
+  };
   final canNodes = dialable.isNotEmpty;
   final canSub = subs.isNotEmpty;
-  var mode = canNodes ? GroupMode.nodes : GroupMode.subscription;
-  var subId = subs.isNotEmpty ? subs.first.id : null;
+  var mode = initial?.mode ??
+      (canNodes ? GroupMode.nodes : GroupMode.subscription);
+  // A mode with no source (e.g. an all_of_sub edit whose sub is gone) falls back
+  // to the one that has content.
+  if (mode == GroupMode.nodes && !canNodes) mode = GroupMode.subscription;
+  if (mode == GroupMode.subscription && !canSub) mode = GroupMode.nodes;
+  var subId = initial?.subId ?? (subs.isNotEmpty ? subs.first.id : null);
+  if (subId != null && !subs.any((s) => s.id == subId)) {
+    subId = subs.isNotEmpty ? subs.first.id : null;
+  }
   final subName = {for (final s in subs) s.id: s.name};
 
   return showDialog<Map<String, Object?>>(
@@ -186,7 +262,7 @@ Future<Map<String, Object?>?> promptNewGroup(
         }
 
         return AlertDialog(
-          title: const Text('New auto group'),
+          title: Text(editing ? 'Edit auto group' : 'New auto group'),
           content: SizedBox(
             width: 520,
             child: SingleChildScrollView(
@@ -269,7 +345,7 @@ Future<Map<String, Object?>?> promptNewGroup(
                 child: const Text('Cancel')),
             FilledButton(
               onPressed: valid ? () => Navigator.pop(context, spec()) : null,
-              child: const Text('Create'),
+              child: Text(editing ? 'Save' : 'Create'),
             ),
           ],
         );

@@ -35,6 +35,15 @@ class _FakeClient extends DaemonClient {
     upsertedGroups.add(group);
   }
 
+  /// The stored spec get_group hands back for an edit (explicit members + a
+  /// probe interval — the shape list_nodes cannot express).
+  @override
+  Future<Map<String, Object?>> getGroup(String group) async => {
+        'name': 'Auto',
+        'members': ['n1'],
+        'probe': {'interval_sec': 90},
+      };
+
   @override
   Future<List<LatencyResult>> testLatency([List<String>? nodes]) async {
     if (nodes != null) probed.addAll(nodes);
@@ -252,6 +261,43 @@ void main() {
     expect(spec['name'], 'Sub Auto');
     expect(spec['all_of_sub'], 's1');
     expect(spec.containsKey('members'), isFalse);
+  });
+
+  testWidgets('editing a user group round-trips its spec via get_group',
+      (tester) async {
+    // autoGroup is a user group (no subId); its menu offers Edit….
+    final client = _FakeClient(nodes: [tokyo, osaka, autoGroup]);
+    await _pumpHome(tester, client);
+
+    // The group row is last; open its menu and pick Edit.
+    await tester.tap(find.byIcon(Icons.more_vert).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit…'));
+    await tester.pumpAndSettle();
+
+    // The editor pre-fills from get_group's stored spec (name + membership).
+    expect(find.text('Edit auto group'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byType(AlertDialog), matching: find.text('Auto')),
+        findsWidgets);
+
+    // Rename and Save; the caller stamps the group's id for an in-place replace.
+    await tester.enterText(
+        find
+            .descendant(
+                of: find.byType(AlertDialog), matching: find.byType(TextField))
+            .first,
+        'Renamed');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    final spec = client.upsertedGroups.single;
+    expect(spec['id'], 'g1'); // in-place replace
+    expect(spec['name'], 'Renamed');
+    expect(spec['members'], ['n1']); // the pre-filled membership survived
+    expect((spec['probe'] as Map)['interval_sec'], 90); // and the probe
   });
 
   testWidgets('the group editor rejects an out-of-uint32 re-rank interval',

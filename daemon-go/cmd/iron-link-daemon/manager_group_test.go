@@ -232,6 +232,37 @@ func TestUpsertGroupCreateEditValidate(t *testing.T) {
 	}
 }
 
+// TestGetGroupReturnsStoredSpec: get_group returns a group's TRUE stored spec
+// (membership mode + probe), not the resolved list_nodes row — and rejects a
+// dialable node or an unknown ref.
+func TestGetGroupReturnsStoredSpec(t *testing.T) {
+	m := groupFixtureManager(t)
+
+	resp := m.Handle(api.Request{Command: api.CmdGetGroup, Node: strPtr("Auto")})
+	if resp.Status != api.StatusGroupConfig {
+		t.Fatalf("get_group: %+v", resp)
+	}
+	var spec store.GroupSpec
+	if err := json.Unmarshal(resp.GroupConfig, &spec); err != nil {
+		t.Fatalf("decode group_config: %v", err)
+	}
+	if spec.Name != "Auto" ||
+		len(spec.Members) != 1 || spec.Members[0] != "11111111-1111-1111-1111-111111111111" ||
+		spec.AllOfSub != nil ||
+		spec.Probe.IntervalSec != 180 || spec.Probe.Tolerance != 150 {
+		t.Errorf("group_config spec = %+v", spec)
+	}
+
+	// A dialable node is not a group.
+	if r := m.Handle(api.Request{Command: api.CmdGetGroup, Node: strPtr("node-x")}); r.Status != api.StatusError {
+		t.Errorf("get_group on a dialable node must error: %+v", r)
+	}
+	// An unknown ref errors.
+	if r := m.Handle(api.Request{Command: api.CmdGetGroup, Node: strPtr("nope")}); r.Status != api.StatusError {
+		t.Errorf("get_group on an unknown ref must error: %+v", r)
+	}
+}
+
 // TestUpsertRoutingRejectsGroupTarget: a routing rule cannot target a group —
 // the group's urltest exists only while it is the active node, so such a rule
 // would fail an unrelated activation. It is rejected at authoring time.

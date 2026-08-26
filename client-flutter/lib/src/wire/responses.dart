@@ -24,6 +24,7 @@ sealed class Response {
         'refreshed' => RefreshedResponse.fromJson(json),
         'routing' => RoutingResponse.fromJson(json),
         'routing_config' => RoutingConfigResponse.fromJson(json),
+        'group_config' => GroupConfigResponse.fromJson(json),
         'routing_schema' => RoutingSchemaResponse.fromJson(json),
         'diagnosis' => DiagnosisResponse.fromJson(json),
         'app_traffic' => AppTrafficResponse.fromJson(json),
@@ -205,6 +206,21 @@ final class RoutingConfigResponse extends Response {
         };
 
   final Map<String, Object?> routingConfig;
+}
+
+/// `group_config` — ONE user group's stored spec ({name, members?/all_of_sub?,
+/// probe}), the `get_group` reply; pre-fills the group editor and is sent back
+/// via `upsert_group`.
+final class GroupConfigResponse extends Response {
+  const GroupConfigResponse({this.groupConfig = const {}});
+
+  GroupConfigResponse.fromJson(Map<String, Object?> json)
+      : groupConfig = switch (json['group_config']) {
+          final Map<String, Object?> m => m,
+          _ => const {},
+        };
+
+  final Map<String, Object?> groupConfig;
 }
 
 /// `routing_schema` — the routing-form schema (see [RoutingSchema]).

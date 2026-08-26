@@ -238,11 +238,53 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     if (!await _ensureActiveProfile() || !mounted) return;
-    final spec =
-        await promptNewGroup(context, dialable: dialable, subs: groupableSubs);
+    final spec = await promptGroupEditor(context,
+        dialable: dialable, subs: groupableSubs);
     if (spec == null || !mounted) return;
     if (await guardOk(context, () => widget.client.upsertGroup(spec))) {
       if (mounted) showSnack(context, 'Group created');
+      _load();
+    }
+  }
+
+  /// Edit an existing USER group in place. Fetch its true spec (get_group —
+  /// list_nodes gives only resolved members, losing the membership mode and
+  /// probe), pre-fill the editor, then upsert with the group's id so the daemon
+  /// replaces it without changing its identity. Provider groups are not offered
+  /// this — they are regenerated from their subscription on every refresh.
+  Future<void> _editGroup(NodeInfo group) async {
+    final nodes = _nodes, subs = _subs;
+    if (nodes == null || subs == null) return;
+    final raw = await guard(context, () => widget.client.getGroup(group.id));
+    if (raw == null || !mounted) return;
+    final initial = GroupInitial.fromSpec(raw);
+
+    final dialable = nodes.where((n) => !n.isGroup).toList();
+    final groupableSubIds = {
+      for (final n in dialable)
+        if (n.subId != null) n.subId,
+    };
+    final editorSubs =
+        subs.where((s) => groupableSubIds.contains(s.id)).toList();
+    // Keep the group's own subscription selectable even if it currently has no
+    // dialable members (so the dropdown can pre-select it without an assert).
+    if (initial.mode == GroupMode.subscription &&
+        initial.subId != null &&
+        !editorSubs.any((s) => s.id == initial.subId)) {
+      for (final s in subs) {
+        if (s.id == initial.subId) {
+          editorSubs.add(s);
+          break;
+        }
+      }
+    }
+
+    final spec = await promptGroupEditor(context,
+        dialable: dialable, subs: editorSubs, initial: initial);
+    if (spec == null || !mounted) return;
+    spec['id'] = group.id; // replace in place, keep identity
+    if (await guardOk(context, () => widget.client.upsertGroup(spec))) {
+      if (mounted) showSnack(context, 'Group updated');
       _load();
     }
   }
@@ -335,6 +377,8 @@ class _HomePageState extends State<HomePage> {
         if (await guardOk(context, () => widget.client.selectNode(node.id))) {
           _load();
         }
+      case 'edit':
+        await _editGroup(node);
       case 'test':
         await _probe([node.name]);
       case 'diagnose':
@@ -772,6 +816,10 @@ class _HomePageState extends State<HomePage> {
                 value: 'select',
                 child: Text('Set as profile default'),
               ),
+              // Only a USER group is editable; a provider group is regenerated
+              // from its subscription on every refresh.
+              if (node.isGroup && node.subId == null)
+                const PopupMenuItem(value: 'edit', child: Text('Edit…')),
               // A group has no endpoint of its own: latency, diagnosis, and a
               // core pin apply to its members, not to it.
               if (!node.isGroup) ...[

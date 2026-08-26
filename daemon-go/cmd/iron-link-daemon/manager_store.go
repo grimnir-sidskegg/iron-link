@@ -332,6 +332,38 @@ func (m *manager) upsertGroup(req api.Request) api.Response {
 	})
 }
 
+// getGroup returns ONE group's stored spec as its full JSON document — the read
+// half of upsert_group (list_nodes carries only the RESOLVED member ids, losing
+// the membership mode and the probe tuning). An editor fetches this to round-trip
+// the true spec. The ref (req.Node) must resolve to a group.
+func (m *manager) getGroup(req api.Request) api.Response {
+	if req.Node == nil || *req.Node == "" {
+		return errResp("get_group requires a group name or id")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	name, err := m.resolveProfileName(req)
+	if err != nil {
+		return errResp(err.Error())
+	}
+	p, err := m.store.LoadProfile(name)
+	if err != nil {
+		return errResp(err.Error())
+	}
+	n, err := resolveNode(p, *req.Node)
+	if err != nil {
+		return errResp(err.Error())
+	}
+	if !n.IsGroup() {
+		return errResp(fmt.Sprintf("node %q is not a group", *req.Node))
+	}
+	raw, err := json.Marshal(n.Group)
+	if err != nil {
+		return errResp("encode group: " + err.Error())
+	}
+	return api.Response{Status: api.StatusGroupConfig, GroupConfig: raw}
+}
+
 func (m *manager) listSubscriptions(req api.Request) api.Response {
 	m.mu.Lock()
 	defer m.mu.Unlock()

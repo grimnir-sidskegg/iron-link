@@ -40,6 +40,7 @@ const (
 	CmdRemoveNode       = "remove_node"
 	CmdSetNodePrefs     = "set_node_prefs"
 	CmdUpsertGroup      = "upsert_group"
+	CmdGetGroup         = "get_group"
 	CmdListSubs         = "list_subscriptions"
 	CmdAddSub           = "add_subscription"
 	CmdRefreshSubs      = "refresh_subscriptions"
@@ -105,7 +106,8 @@ type Request struct {
 	RoutingConfig json.RawMessage `json:"routing_config,omitempty"`
 
 	// activate (optional), switch_node / select_node / remove_node /
-	// set_node_prefs (required): the node NAME (or id for the store verbs)
+	// set_node_prefs / get_group (required): the node NAME (or id for the store
+	// verbs; get_group's ref must resolve to a group)
 	Node *string `json:"node,omitempty"`
 
 	// stop (optional): which role to stop; nil = stop all
@@ -168,6 +170,7 @@ const (
 	StatusRefreshed     = "refreshed"
 	StatusRouting       = "routing"
 	StatusRoutingConfig = "routing_config"
+	StatusGroupConfig   = "group_config"
 	StatusRoutingSchema = "routing_schema"
 	StatusDiagnosis     = "diagnosis"
 	StatusSettings      = "settings"
@@ -384,6 +387,11 @@ type Response struct {
 	// routing_config (get_routing): ONE config as its full JSON document —
 	// the read half of upsert_routing's write
 	RoutingConfig json.RawMessage `json:"routing_config,omitempty"`
+	// group_config (get_group): ONE user group's stored spec as its full JSON
+	// document ({name, members?/all_of_sub?, probe}) — the read half of
+	// upsert_group, so an editor round-trips the true membership mode and probe
+	// (neither of which the resolved list_nodes group row carries)
+	GroupConfig json.RawMessage `json:"group_config,omitempty"`
 	// routing_schema
 	RoutingSchema *RoutingSchema `json:"routing_schema,omitempty"`
 	// diagnosis

@@ -416,6 +416,18 @@ final class UpsertRoutingRequest extends Request {
       {'command': 'upsert_routing', 'routing_config': routingConfig};
 }
 
+/// `get_group` — ONE user group's stored spec (by id or name), the read half
+/// of `upsert_group`: it carries the true membership mode and probe, which the
+/// resolved `list_nodes` group row does not.
+final class GetGroupRequest extends Request {
+  const GetGroupRequest(this.group);
+
+  final String group;
+
+  @override
+  Map<String, Object?> toJson() => {'command': 'get_group', 'node': group};
+}
+
 /// `upsert_group` — a user group's spec JSON ({id?, name, members?/all_of_sub?,
 /// probe?}); a missing id creates a new user group, an existing user-group id
 /// replaces it in place.

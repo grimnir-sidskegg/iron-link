@@ -79,6 +79,7 @@ final requestCases = <String, Request>{
   'requests/select_node.json': const SelectNodeRequest('3f2a'),
   'requests/select_routing.json': const SelectRoutingRequest('basic'),
   'requests/get_routing.json': const GetRoutingRequest('r1'),
+  'requests/get_group.json': const GetGroupRequest('Auto'),
   'requests/routing_schema.json': const RoutingSchemaRequest(),
   'requests/set_active_profile.json': const SetActiveProfileRequest('main'),
   'requests/set_node_prefs_clear.json': const SetNodePrefsRequest('3f2a'),
@@ -240,6 +241,13 @@ final responseCases = <String, void Function(Response)>{
     expect(cfg['name'], 'basic');
     expect(cfg['default_target'], 'Direct');
     expect(cfg['rules'], hasLength(1));
+  },
+  'responses/group_config.json': (r) {
+    final g = (r as GroupConfigResponse).groupConfig;
+    expect(g['name'], 'Auto');
+    expect(g['all_of_sub'], 's1');
+    expect((g['probe'] as Map)['interval_sec'], 180);
+    expect(g.containsKey('members'), isFalse);
   },
   'responses/routing_schema.json': (r) {
     final s = (r as RoutingSchemaResponse).routingSchema;

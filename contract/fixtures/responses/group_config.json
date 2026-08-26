@@ -1,0 +1,1 @@
+{"status": "group_config", "group_config": {"name": "Auto", "all_of_sub": "s1", "probe": {"interval_sec": 180}}}

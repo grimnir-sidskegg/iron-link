@@ -313,6 +313,13 @@ class DaemonClient {
   Future<void> upsertGroup(Map<String, Object?> group) =>
       _expect<OkResponse>(UpsertGroupRequest(group));
 
+  /// Returns one user group's stored spec ({name, members?/all_of_sub?, probe})
+  /// by id or name — the read half of [upsertGroup] that pre-fills the editor
+  /// with the true membership mode and probe (the resolved [listNodes] group
+  /// row carries neither).
+  Future<Map<String, Object?>> getGroup(String group) async =>
+      (await _expect<GroupConfigResponse>(GetGroupRequest(group))).groupConfig;
+
   /// Returns one config's full JSON document — the read half of
   /// [upsertRouting].
   Future<Map<String, Object?>> getRouting(String routing) async =>
