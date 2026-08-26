@@ -5,9 +5,10 @@
 // this file runs under the canonical tag set (`-tags "with_gvisor,with_utls,with_clash_api"`).
 //
 // Fixture shape: node-a = xhttp (xray-routed, the store's active node),
-// node-b = tcp (sing-box-native member), node-c = xhttp (xray-routed, NOT
-// active → not embedded). So a↔b switches are LIVE selector moves and a
-// switch to c forces a re-activation — both asserted via m.activations.
+// node-b = tcp (sing-box-native member), node-c = xhttp (xray-routed). Since
+// M1 every xray-eligible node embeds as a live member of the one xray instance,
+// so ALL of a↔b↔c are LIVE selector moves (no re-activation) — asserted via
+// m.activations staying 1. An explicit activate is the re-activation path.
 package main
 
 import (
@@ -62,25 +63,25 @@ func TestManagerLifecycleLiveAndReactivateSwitch(t *testing.T) {
 		t.Errorf("switch to the embedded xray member must be live, got %d activations", m.activations)
 	}
 
-	// node-c is xray-routed and NOT embedded → re-activation.
+	// node-c is a second xray member of the same instance → also a LIVE switch.
 	nodeC := "node-c"
 	if sw := m.Handle(api.Request{Command: api.CmdSwitchNode, Node: &nodeC}); sw.Status != api.StatusSwitched {
-		t.Fatalf("switch to the non-embedded xray node: %+v", sw)
+		t.Fatalf("switch to the second xray member: %+v", sw)
 	}
-	if m.activations != 2 {
-		t.Errorf("switch to a non-member must re-activate, got %d activations", m.activations)
+	if m.activations != 1 {
+		t.Errorf("switch among embedded xray members must be live, got %d activations", m.activations)
 	}
 	st = m.Handle(api.Request{Command: api.CmdStatus})
 	if st.ActiveNodeLive == nil || *st.ActiveNodeLive != "node-c" || *st.Active.Node != "node-c" {
-		t.Fatalf("status after re-activation switch: %+v", st)
+		t.Fatalf("status after live xray→xray switch: %+v", st)
 	}
 
-	// With node-c active, node-a is no longer embedded → re-activation again.
-	if sw := m.Handle(api.Request{Command: api.CmdSwitchNode, Node: &nodeA}); sw.Status != api.StatusSwitched {
-		t.Fatalf("switch back to node-a: %+v", sw)
+	// An EXPLICIT activate is the re-activation path (always stops + starts).
+	if sw := m.Handle(api.Request{Command: api.CmdActivate, Node: &nodeA}); sw.Status != api.StatusActivated {
+		t.Fatalf("explicit re-activate to node-a: %+v", sw)
 	}
-	if m.activations != 3 {
-		t.Errorf("xray→xray switch must re-activate, got %d activations", m.activations)
+	if m.activations != 2 {
+		t.Errorf("an explicit activate must re-activate, got %d activations", m.activations)
 	}
 
 	missing := "nope"
@@ -102,10 +103,11 @@ func TestManagerLifecycleLiveAndReactivateSwitch(t *testing.T) {
 // next Start (sing-box group.Selector.Start). So a re-activation onto a
 // DIFFERENT node would silently come up live on the stale cached member unless
 // the manager pins the selector to the activated node. Sequence: activate
-// (node-a) → live-switch to the native node-b (caches "node-b") → switch to the
-// non-embedded xray node-c, which re-activates. node-b (native) is still a
-// member of the node-c plan, so the cached selection would win — the live node
-// MUST be node-c regardless.
+// (node-a) → live-switch to the native node-b (caches "node-b") → EXPLICIT
+// activate of node-c, which re-activates. node-b (native) is still a member of
+// the node-c plan, so the cached selection would win — the live node MUST be
+// node-c regardless. (Since M1 every node is an embedded member, a switch never
+// re-activates; the explicit activate is the re-activation trigger.)
 func TestManagerReactivationHonoursActivatedNode(t *testing.T) {
 	m := fixtureManager(t)
 
@@ -124,13 +126,13 @@ func TestManagerReactivationHonoursActivatedNode(t *testing.T) {
 		t.Fatalf("switch to a native member must be live, got %d activations", m.activations)
 	}
 
-	// Switch to the non-embedded xray node-c → re-activation.
+	// Explicit activate of node-c → re-activation with node-b still cached.
 	nodeC := "node-c"
-	if sw := m.Handle(api.Request{Command: api.CmdSwitchNode, Node: &nodeC}); sw.Status != api.StatusSwitched {
-		t.Fatalf("switch to node-c: %+v", sw)
+	if sw := m.Handle(api.Request{Command: api.CmdActivate, Node: &nodeC}); sw.Status != api.StatusActivated {
+		t.Fatalf("re-activate node-c: %+v", sw)
 	}
 	if m.activations != 2 {
-		t.Fatalf("switch to a non-member must re-activate, got %d activations", m.activations)
+		t.Fatalf("an explicit activate must re-activate, got %d activations", m.activations)
 	}
 	st := m.Handle(api.Request{Command: api.CmdStatus})
 	if st.ActiveNodeLive == nil || *st.ActiveNodeLive != "node-c" {

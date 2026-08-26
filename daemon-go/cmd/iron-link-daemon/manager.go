@@ -363,11 +363,12 @@ func (m *manager) saveLastSessionLocked() {
 
 // buildPlan runs capability selection over EVERY node of the profile
 // (tunEngine = sing-box, the per-node core_override honored): sing-box-eligible
-// nodes embed as native selector members; the ACTIVE node, when selection
-// sends it to xray, becomes the plan's one xray-routed member. Other
-// xray-routed nodes stay out (v1: switching to them re-activates). A non-active
-// node that no core can dial is skipped, not fatal; the ACTIVE node failing
-// selection fails the activation.
+// nodes embed as native selector members; every xray-eligible node embeds as a
+// member of the one xray instance, so switching among them is live. The ACTIVE
+// xray node, when any, is XrayNodes[0] (xray's default outbound). A non-active
+// node that no core can dial — or that xray cannot actually build an outbound
+// for — is skipped with a log, not fatal (one broken node must not brick every
+// activation); the ACTIVE node failing either check fails the activation.
 func buildPlan(prof *store.Profile, active *store.Node) (engine.SessionPlan, error) {
 	var plan engine.SessionPlan
 	// Selector member tags are the stable node UUIDs (DisplayName may collide),
@@ -385,11 +386,28 @@ func buildPlan(prof *store.Profile, active *store.Node) (engine.SessionPlan, err
 			continue
 		}
 		named := engine.NamedNode{ID: n.ID, Name: n.DisplayName(), Profile: n.Profile()}
-		switch {
-		case core == api.CoreSingBox:
+		if core == api.CoreSingBox {
 			plan.Natives = append(plan.Natives, named)
-		case isActive: // xray-routed AND active
-			plan.XrayNode = &named
+			continue
+		}
+		// xray-routed: confirm xray can actually build the outbound before it
+		// joins the instance (a broken non-active member must not fail the
+		// whole activation, but a member that reaches compile and fails there
+		// would).
+		if _, ok, xerr := n.Profile().XrayOutbound(); xerr != nil || !ok {
+			if xerr == nil {
+				xerr = fmt.Errorf("xray cannot dial %s nodes", n.Profile().Kind())
+			}
+			if isActive {
+				return plan, fmt.Errorf("active node %q: %w", n.DisplayName(), xerr)
+			}
+			fmt.Fprintf(os.Stderr, "iron-link-daemon: skipping xray node %q: %v\n", n.DisplayName(), xerr)
+			continue
+		}
+		if isActive { // the active xray node is the instance's default (element 0)
+			plan.XrayNodes = append([]engine.NamedNode{named}, plan.XrayNodes...)
+		} else {
+			plan.XrayNodes = append(plan.XrayNodes, named)
 		}
 	}
 	return plan, nil

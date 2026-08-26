@@ -60,7 +60,7 @@ func TestPlanWithXrayMember(t *testing.T) {
 	p := twoNativePlan()
 	xrayNode := namedNode("node-x", "203.0.113.3", testReality(),
 		ilproxy.Transport{Kind: ilproxy.TransportXhttp, Xhttp: &ilproxy.XhttpParams{}})
-	p.XrayNode = &xrayNode
+	p.XrayNodes = []NamedNode{xrayNode}
 	p.ActiveTag = "node-x"
 
 	if !p.IsMember("node-x") || !p.IsMember("node-a") || p.IsMember("ghost") {
@@ -85,6 +85,49 @@ func TestPlanWithXrayMember(t *testing.T) {
 	}
 	if err := sess.SelectOutbound("node-x"); err != nil {
 		t.Fatalf("live select back onto the xray member: %v", err)
+	}
+}
+
+// TestPlanTwoXrayMembersLiveSelect is the M1 payoff: TWO xray-routed nodes are
+// simultaneous members of the one xray instance and BOTH are live-switchable
+// with no re-activation. The active xray node is XrayNodes[0] and is the
+// selector default; a live select moves to the second xray member and back.
+func TestPlanTwoXrayMembersLiveSelect(t *testing.T) {
+	p := twoNativePlan()
+	xa := namedNode("xray-a", "203.0.113.7", testReality(),
+		ilproxy.Transport{Kind: ilproxy.TransportXhttp, Xhttp: &ilproxy.XhttpParams{}})
+	xb := namedNode("xray-b", "203.0.113.8", testReality(),
+		ilproxy.Transport{Kind: ilproxy.TransportXhttp, Xhttp: &ilproxy.XhttpParams{}})
+	p.XrayNodes = []NamedNode{xa, xb}
+	p.ActiveTag = "xray-a"
+
+	for _, tag := range []string{"xray-a", "xray-b", "node-a"} {
+		if !p.IsMember(tag) {
+			t.Fatalf("IsMember(%q) = false; members = %v", tag, p.memberTags())
+		}
+	}
+
+	sbCfg, xrayCfg, err := PlanSocksConfigs(p, "127.0.0.1", freePort(t))
+	if err != nil {
+		t.Fatalf("PlanSocksConfigs: %v", err)
+	}
+	sess, err := Start(sbCfg, xrayCfg)
+	if err != nil {
+		t.Fatalf("Start (two xray members): %v", err)
+	}
+	defer sess.Close()
+
+	if now, _ := sess.SelectedOutbound(); now != "xray-a" {
+		t.Errorf("default member = %q, want xray-a", now)
+	}
+	if err := sess.SelectOutbound("xray-b"); err != nil {
+		t.Fatalf("live select to the second xray member: %v", err)
+	}
+	if now, _ := sess.SelectedOutbound(); now != "xray-b" {
+		t.Errorf("after select: SelectedOutbound = %q, want xray-b", now)
+	}
+	if err := sess.SelectOutbound("xray-a"); err != nil {
+		t.Fatalf("live select back to the first xray member: %v", err)
 	}
 }
 

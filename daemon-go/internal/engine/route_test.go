@@ -19,7 +19,7 @@ func xrayOnlyPlan() SessionPlan {
 	node := namedNode("node-x", "203.0.113.9", testReality(),
 		ilproxy.Transport{Kind: ilproxy.TransportXhttp, Xhttp: &ilproxy.XhttpParams{}})
 	node.ID = "9e000000-0000-4000-8000-000000000009"
-	return SessionPlan{XrayNode: &node, ActiveTag: node.ID}
+	return SessionPlan{XrayNodes: []NamedNode{node}, ActiveTag: node.ID}
 }
 
 // realShapedRouting mirrors the live "basic" config: legacy null conditions,

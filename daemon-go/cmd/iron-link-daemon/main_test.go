@@ -100,6 +100,42 @@ func freePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
+// TestBuildPlanEmbedsAllXrayNodes pins the M1 invariant: EVERY xray-eligible
+// node embeds as a member (not just the active one), the active xray node is
+// XrayNodes[0] (xray's default outbound), and native nodes stay native. The
+// fixture is node-a (xhttp/xray), node-b (tcp/native), node-c (xhttp/xray).
+func TestBuildPlanEmbedsAllXrayNodes(t *testing.T) {
+	m := fixtureManager(t)
+	prof, err := m.store.LoadProfile("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := prof.FindNodeByName("node-c")
+	if active == nil {
+		t.Fatal("fixture missing node-c")
+	}
+
+	plan, err := buildPlan(prof, active)
+	if err != nil {
+		t.Fatalf("buildPlan: %v", err)
+	}
+	if plan.ActiveTag != active.ID {
+		t.Errorf("ActiveTag = %q, want %q", plan.ActiveTag, active.ID)
+	}
+	if len(plan.Natives) != 1 || plan.Natives[0].Name != "node-b" {
+		t.Errorf("Natives = %+v, want [node-b]", plan.Natives)
+	}
+	if len(plan.XrayNodes) != 2 {
+		t.Fatalf("XrayNodes count = %d, want 2 (both xray nodes embedded)", len(plan.XrayNodes))
+	}
+	if plan.XrayNodes[0].Name != "node-c" {
+		t.Errorf("XrayNodes[0] = %q, want node-c (the active xray node leads)", plan.XrayNodes[0].Name)
+	}
+	if plan.XrayNodes[1].Name != "node-a" {
+		t.Errorf("XrayNodes[1] = %q, want node-a", plan.XrayNodes[1].Name)
+	}
+}
+
 func TestManagerIdleVerbs(t *testing.T) {
 	m := fixtureManager(t)
 

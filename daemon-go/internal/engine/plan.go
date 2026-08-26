@@ -43,14 +43,19 @@ type NamedNode struct {
 
 // SessionPlan is one activation's node set.
 //
-// v1 (plan §5): one xray instance per active xray-routed node — only the
-// ACTIVE xray node is embedded (XrayNode); other xray-only nodes need a
-// re-activation. Native nodes are all embedded and live-switchable.
+// All xray-eligible nodes embed as simultaneous live members of the one xray
+// instance (compileXrayClientNodes hosts N under per-node inbound-tag
+// dispatch), so switching among xray nodes is live — no re-activation. When an
+// xray node is the activation's active node it is XrayNodes[0] (declared first,
+// xray's default outbound for a tag-less dispatch). Native nodes are all
+// embedded and live-switchable too.
 type SessionPlan struct {
 	// Natives are the sing-box-native selector members.
 	Natives []NamedNode
-	// XrayNode is the active node when it is xray-routed, else nil.
-	XrayNode *NamedNode
+	// XrayNodes are the xray-routed selector members, all hosted by the one
+	// xray instance. Empty when no node routes to xray. The active xray node,
+	// when any, is element 0.
+	XrayNodes []NamedNode
 	// ActiveTag is the selector default; it must name a member (a native, or
 	// XrayNode).
 	ActiveTag string
@@ -68,14 +73,14 @@ type SessionPlan struct {
 }
 
 // memberTags lists the selector members by their UUID tag: every native node,
-// plus the active xray node (its member IS the xray-reality outbound).
+// then every xray node (each an xray-reality outbound of the one instance).
 func (p *SessionPlan) memberTags() []string {
-	tags := make([]string, 0, len(p.Natives)+1)
+	tags := make([]string, 0, len(p.Natives)+len(p.XrayNodes))
 	for _, n := range p.Natives {
 		tags = append(tags, n.ID)
 	}
-	if p.XrayNode != nil {
-		tags = append(tags, p.XrayNode.ID)
+	for _, n := range p.XrayNodes {
+		tags = append(tags, n.ID)
 	}
 	return tags
 }
@@ -95,8 +100,10 @@ func (p *SessionPlan) MemberTagForName(name string) (tag string, ok bool) {
 			return p.Natives[i].ID, true
 		}
 	}
-	if p.XrayNode != nil && p.XrayNode.Name == name {
-		return p.XrayNode.ID, true
+	for i := range p.XrayNodes {
+		if p.XrayNodes[i].Name == name {
+			return p.XrayNodes[i].ID, true
+		}
 	}
 	return "", false
 }
@@ -110,8 +117,10 @@ func (p *SessionPlan) DisplayNameForTag(tag string) (name string, ok bool) {
 			return p.Natives[i].Name, true
 		}
 	}
-	if p.XrayNode != nil && p.XrayNode.ID == tag {
-		return p.XrayNode.Name, true
+	for i := range p.XrayNodes {
+		if p.XrayNodes[i].ID == tag {
+			return p.XrayNodes[i].Name, true
+		}
 	}
 	return "", false
 }
@@ -155,14 +164,14 @@ func (p *SessionPlan) planOutbounds() ([]any, error) {
 		}
 		outbounds = append(outbounds, ob)
 	}
-	if p.XrayNode != nil {
-		// node_id is the backend-side dispatch id: the xray instance
-		// (CompileXrayClient) hosts this one node under singleNodeTag with a
-		// matching inboundTag rule, so the member dispatches deterministically by
-		// inbound tag. The selector still keys on the outbound tag (the node UUID),
-		// so selection semantics are unchanged.
+	for i := range p.XrayNodes {
+		// node_id is the backend-side dispatch id: the one xray instance
+		// (compileXrayClientNodes) hosts every xray node under its UUID with a
+		// matching inboundTag rule, so each member dispatches deterministically by
+		// inbound tag. The selector keys on the outbound tag (the node UUID too),
+		// so selection semantics are unchanged; tag == node_id here.
 		outbounds = append(outbounds, map[string]any{
-			"type": OutboundType, "tag": p.XrayNode.ID, "node_id": singleNodeTag,
+			"type": OutboundType, "tag": p.XrayNodes[i].ID, "node_id": p.XrayNodes[i].ID,
 		})
 	}
 	outbounds = append(outbounds,
@@ -301,7 +310,9 @@ func serverExcludes(p SessionPlan) []string {
 	for i := range p.Natives {
 		add(&p.Natives[i])
 	}
-	add(p.XrayNode)
+	for i := range p.XrayNodes {
+		add(&p.XrayNodes[i])
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -386,13 +397,17 @@ func PlanSocksConfigs(p SessionPlan, host string, port int) (singBox, xray []byt
 	return singBox, xray, err
 }
 
-// xrayConfig returns the xray side: the real client config when the active
-// node is xray-routed, else an inert freedom stub (Session.Start always
-// builds an xray instance; with no xray-reality outbound in the sing-box
-// config it never sees traffic).
+// xrayConfig returns the xray side: one client config hosting EVERY xray-routed
+// member (each tagged by its UUID, dispatched by inbound tag), else an inert
+// freedom stub (Session.Start always builds an xray instance; with no
+// xray-reality outbound in the sing-box config it never sees traffic).
 func (p *SessionPlan) xrayConfig(stubListen string) ([]byte, error) {
-	if p.XrayNode != nil {
-		return CompileXrayClient(p.XrayNode.Profile, stubListen)
+	if len(p.XrayNodes) > 0 {
+		nodes := make([]xrayClientNode, len(p.XrayNodes))
+		for i := range p.XrayNodes {
+			nodes[i] = xrayClientNode{ID: p.XrayNodes[i].ID, Profile: p.XrayNodes[i].Profile}
+		}
+		return compileXrayClientNodes(nodes, stubListen)
 	}
 	return []byte(fmt.Sprintf(`{
       "log": {"loglevel":"warning"},
