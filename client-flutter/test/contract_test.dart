@@ -337,6 +337,9 @@ final eventCases = <String, void Function(Event)>{
     e as StateEvent;
     expect(e.isRunning, isTrue);
     expect(e.active?.node, 'Grimnir [VLESS - tcp]');
+    // The daemon pushes the live node on the state event (an urltest
+    // auto-switch reaches the client without the status poll).
+    expect(e.activeNodeLive, 'Grimnir [VLESS - tcp]');
   },
   'events/traffic.json': (e) {
     e as TrafficEvent;

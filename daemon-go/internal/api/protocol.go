@@ -430,6 +430,10 @@ type Event struct {
 	// state: a full session snapshot (first frame + on every transition)
 	Entries []CoreEntry     `json:"entries,omitempty"`
 	Active  *PersistedEntry `json:"active,omitempty"`
+	// state: the in-process live node NAME (an urltest's current member pick
+	// when an Auto group is active) — pushed so an auto-switch reaches clients
+	// without waiting for the status poll. Absent on an idle state.
+	ActiveNodeLive *string `json:"active_node_live,omitempty"`
 
 	// traffic: bytes in the LAST SECOND (not cumulative)
 	Up   *uint64 `json:"up,omitempty"`

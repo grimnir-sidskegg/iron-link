@@ -100,7 +100,8 @@ class DaemonSession extends ChangeNotifier {
   List<CoreEntry> entries = const [];
   PersistedEntry? active;
 
-  /// The live selector readback from the last status poll.
+  /// The live selector readback: pushed on every state event (an urltest
+  /// auto-switch included) and refreshed by the backstop status poll.
   String? activeNodeLive;
 
   bool get isRunning => entries.any((e) => e.isRunning);
@@ -165,8 +166,21 @@ class DaemonSession extends ChangeNotifier {
       case StateEvent():
         entries = event.entries;
         active = event.active;
+        // A state event is at least as fresh as any poll already in flight, so
+        // invalidate that poll's late reply (bump the generation exactly as a
+        // switch's refreshStatus does) — otherwise a pre-auto-switch poll
+        // landing after this event would clobber the live node back to the old
+        // one until the next backstop poll.
+        _statusGen++;
+        // The daemon pushes the live node on a running transition (an urltest
+        // auto-switch included), so the badge follows without the 5s poll. Only
+        // overwrite when the event actually carries it: an idle event clears it,
+        // and a daemon predating the push omits it on a running event — which
+        // must not wipe the value the status poll provided.
         if (!event.isRunning) {
           activeNodeLive = null;
+        } else if (event.activeNodeLive != null) {
+          activeNodeLive = event.activeNodeLive;
         }
       case TrafficEvent():
         traffic.addLast(TrafficPoint(event.up, event.down));

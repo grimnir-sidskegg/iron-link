@@ -20,7 +20,7 @@ sealed class Event {
 /// connection and one per transition. Idle is the BARE `{"event":"state"}`
 /// — both fields default. Idempotent by design.
 final class StateEvent extends Event {
-  const StateEvent({this.entries = const [], this.active});
+  const StateEvent({this.entries = const [], this.active, this.activeNodeLive});
 
   StateEvent.fromJson(Map<String, Object?> json)
       : entries = _objList(json['entries'])
@@ -28,10 +28,17 @@ final class StateEvent extends Event {
             .toList(growable: false),
         active = json['active'] is Map<String, Object?>
             ? PersistedEntry.fromJson(json['active'] as Map<String, Object?>)
-            : null;
+            : null,
+        activeNodeLive = _strOpt(json['active_node_live']);
 
   final List<CoreEntry> entries;
   final PersistedEntry? active;
+
+  /// The in-process live node NAME (an urltest's current member pick when an
+  /// Auto group is active) at the time of the transition — the daemon pushes it
+  /// so an auto-switch reaches the client WITHOUT waiting for the status poll.
+  /// Absent (null) on an idle state event.
+  final String? activeNodeLive;
 
   bool get isRunning => entries.any((e) => e.isRunning);
 }

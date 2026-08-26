@@ -327,6 +327,12 @@ func (m *manager) startTrafficEmitterLocked() {
 	stop := make(chan struct{})
 	m.stopTraffic = stop
 	sess := m.sess
+	// Seed the live-node baseline from the state the activation just broadcast,
+	// so the first tick only pushes when the urltest has actually moved.
+	lastLive := ""
+	if n := m.liveNodeNameLocked(); n != nil {
+		lastLive = *n
+	}
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -342,9 +348,37 @@ func (m *manager) startTrafficEmitterLocked() {
 				if m.hub != nil && m.hub.SubscriberCount() > 0 {
 					m.hub.Broadcast(api.Event{Event: api.EventTraffic, Up: &deltaUp, Down: &deltaDown})
 				}
+				// An urltest auto-switch changes the live node with NO event of
+				// its own; detect the move on this same 1 Hz tick and push a
+				// State so the client's badge follows without the 5 s poll.
+				m.broadcastLiveChange(sess, &lastLive)
 			}
 		}
 	}()
+}
+
+// broadcastLiveChange pushes a State event when the session's live node
+// moved since lastLive (an urltest auto-switch). It takes mu itself — the
+// emitter goroutine holds none — and no-ops for a stale goroutine whose session
+// was already torn down, so a late tick never broadcasts the wrong session's
+// state. Broadcast is skipped with no subscribers (same as the traffic emit).
+func (m *manager) broadcastLiveChange(sess *engine.Session, lastLive *string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sess != sess {
+		return // this goroutine's session was replaced; let it drain and exit
+	}
+	cur := ""
+	if n := m.liveNodeNameLocked(); n != nil {
+		cur = *n
+	}
+	if cur == *lastLive {
+		return
+	}
+	*lastLive = cur
+	if m.hub != nil && m.hub.SubscriberCount() > 0 {
+		m.hub.Broadcast(m.stateEventLocked())
+	}
 }
 
 // stopTrafficLocked ends the emitter of the session being torn down. Callers
@@ -718,25 +752,34 @@ func (m *manager) status() api.Response {
 		return api.Response{Status: api.StatusIdle}
 	}
 	resp := api.Response{
-		Status:  api.StatusRunning,
-		Entries: m.entriesLocked(),
-		Active:  m.active,
-	}
-	// The live node comes from the IN-PROCESS selector (no Clash API);
-	// single-node sessions have no selector, so the activated node is the live
-	// node by construction. LiveOutbound descends one group level, so when Auto
-	// is active this is the urltest's current pick, not the group tag. The tag is
-	// the node UUID; map it BACK to the client-facing display name.
-	if live, ok := m.sess.LiveOutbound(); ok {
-		if name, ok := m.plan.DisplayNameForTag(live); ok {
-			resp.ActiveNodeLive = &name
-		} else {
-			resp.ActiveNodeLive = &live
-		}
-	} else if m.active != nil {
-		resp.ActiveNodeLive = m.active.Node
+		Status:         api.StatusRunning,
+		Entries:        m.entriesLocked(),
+		Active:         m.active,
+		ActiveNodeLive: m.liveNodeNameLocked(),
 	}
 	return resp
+}
+
+// liveNodeNameLocked resolves the IN-PROCESS live node's client-facing display
+// name (no Clash API): LiveOutbound descends one group level, so when Auto is
+// active this is the urltest's CURRENT member pick, not the group tag; the tag
+// is the node UUID, mapped back to the display name. A single-node session has
+// no selector, so the activated node is the live node by construction. Returns
+// nil when nothing runs. Callers hold mu.
+func (m *manager) liveNodeNameLocked() *string {
+	if m.sess == nil {
+		return nil
+	}
+	if live, ok := m.sess.LiveOutbound(); ok {
+		if name, ok := m.plan.DisplayNameForTag(live); ok {
+			return &name
+		}
+		return &live
+	}
+	if m.active != nil {
+		return m.active.Node
+	}
+	return nil
 }
 
 // switchNode moves traffic to the named node: LIVE via the in-process
@@ -798,6 +841,7 @@ func (m *manager) stateEventLocked() api.Event {
 	ev := api.Event{Event: api.EventState, Active: m.active}
 	if m.sess != nil {
 		ev.Entries = m.entriesLocked()
+		ev.ActiveNodeLive = m.liveNodeNameLocked()
 	}
 	return ev
 }
