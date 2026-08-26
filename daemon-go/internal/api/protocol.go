@@ -169,6 +169,10 @@ const (
 	StatusDoctorReport  = "doctor_report"
 )
 
+// NodeKindGroup is the NodeInfo.Kind value for a member group (an "Auto" node);
+// a dialable node leaves Kind "".
+const NodeKindGroup = "group"
+
 // ConditionSpec describes one routing-rule condition field. Kind is a closed
 // enum of input shapes: "strings" (JSON array of strings), "ports" (array of
 // 1..65535 ints), "numbers" (array of ints), "bool", "string" (single
@@ -286,6 +290,13 @@ type NodeInfo struct {
 	// order — the daemon-computed capability verdict, so clients never carry
 	// capability tables of their own.
 	EligibleCores []CoreType `json:"eligible_cores"`
+	// Kind discriminates the row: "" (absent) = a dialable node, "group"
+	// (NodeKindGroup) = a member group (an "Auto" node). A group row leaves
+	// Protocol/Transport/Security "" and EligibleCores empty.
+	Kind string `json:"kind,omitempty"`
+	// Members is the RESOLVED member node ids of a group row (AllOfSub already
+	// expanded by the daemon); absent for a dialable node.
+	Members []string `json:"members,omitempty"`
 }
 
 // SubscriptionInfo is one subscription, as listed by `list_subscriptions`.

@@ -377,8 +377,17 @@ func buildPlan(prof *store.Profile, active *store.Node) (engine.SessionPlan, err
 
 	for i := range prof.Nodes {
 		n := &prof.Nodes[i]
-		core, err := proxy.SelectCore(n.Profile(), api.CoreSingBox, n.Preferences.CoreOverride)
 		isActive := n.ID == active.ID
+		if n.IsGroup() {
+			// A group lowers to a urltest over its members, which lands in a
+			// later increment; until then activating one is a clear error, and a
+			// non-active group is simply not a selector member of its own.
+			if isActive {
+				return plan, fmt.Errorf("activating a group (%q) is not supported yet", n.DisplayName())
+			}
+			continue
+		}
+		core, err := proxy.SelectCore(n.Profile(), api.CoreSingBox, n.Preferences.CoreOverride)
 		if err != nil {
 			if isActive {
 				return plan, err
@@ -487,16 +496,20 @@ func (m *manager) testLatency(req api.Request) api.Response {
 		return errResp(err.Error())
 	}
 
+	// Groups have no endpoint to probe — they lower to a urltest over members,
+	// each of which is pinged on its own. Skip them in either selection.
 	var nodes []*store.Node
 	if req.Nodes != nil {
 		for _, name := range *req.Nodes {
-			if n := prof.FindNodeByName(name); n != nil {
+			if n := prof.FindNodeByName(name); n != nil && !n.IsGroup() {
 				nodes = append(nodes, n)
 			}
 		}
 	} else {
 		for i := range prof.Nodes {
-			nodes = append(nodes, &prof.Nodes[i])
+			if !prof.Nodes[i].IsGroup() {
+				nodes = append(nodes, &prof.Nodes[i])
+			}
 		}
 	}
 	if len(nodes) == 0 {
@@ -587,6 +600,9 @@ func (m *manager) diagnose(req api.Request) api.Response {
 		}
 	} else if node = prof.ActiveNode(); node == nil {
 		return errResp("no node named and the profile has no active node")
+	}
+	if node.IsGroup() {
+		return errResp("cannot diagnose a group; diagnose one of its members instead")
 	}
 
 	core, err := proxy.SelectCore(node.Profile(), api.CoreSingBox, node.Preferences.CoreOverride)

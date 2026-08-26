@@ -204,6 +204,8 @@ class NodeInfo {
     this.security = '',
     this.active = false,
     this.eligibleCores = const [],
+    this.kind = '',
+    this.members = const [],
   });
 
   NodeInfo.fromJson(Map<String, Object?> json)
@@ -215,7 +217,9 @@ class NodeInfo {
         transport = _str(json['transport']),
         security = _str(json['security']),
         active = _bool(json['active']),
-        eligibleCores = _strList(json['eligible_cores']);
+        eligibleCores = _strList(json['eligible_cores']),
+        kind = _str(json['kind']),
+        members = _strList(json['members']);
 
   final String id;
   final String name;
@@ -235,6 +239,17 @@ class NodeInfo {
 
   /// [CoreType] values that can dial this node, in daemon priority order.
   final List<String> eligibleCores;
+
+  /// Row kind: "" (absent) = a dialable node, "group" = a member group (an
+  /// "Auto" node). A group leaves [protocol]/[transport]/[security] "" and
+  /// [eligibleCores] empty.
+  final String kind;
+
+  /// The resolved member node ids of a group row (empty for a dialable node).
+  final List<String> members;
+
+  /// Whether this row is a member group ("Auto") rather than a dialable node.
+  bool get isGroup => kind == 'group';
 }
 
 /// One subscription, as listed by `list_subscriptions`.

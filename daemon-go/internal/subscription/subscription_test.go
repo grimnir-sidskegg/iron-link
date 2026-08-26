@@ -20,6 +20,28 @@ const (
 	linkB = "vless://99f2c0dc-a8e3-49f4-89b9-b3b54f1cad3a@203.0.113.2:443#node-b"
 )
 
+// TestNodeKeyGroupVsProxy: nodeKey never dereferences a group's nil profile,
+// keys a group by name under a synthetic "group" kind that cannot collide with
+// any real proxy key, and gives two same-named groups the same key (so a
+// provider group survives a refresh by name).
+func TestNodeKeyGroupVsProxy(t *testing.T) {
+	proxyNode, _ := proxy.ParseURL(linkA)
+	pn := store.NewNode(proxyNode.(*proxy.VlessConfig), nil)
+	g1 := store.NewGroupNode(store.GroupSpec{Name: "Auto"}, nil)
+	g2 := store.NewGroupNode(store.GroupSpec{Name: "Auto"}, nil) // different UUID, same name
+	g3 := store.NewGroupNode(store.GroupSpec{Name: "Other"}, nil)
+
+	if nodeKey(&g1) != nodeKey(&g2) {
+		t.Error("two groups with the same name must share a key (name-stable across refresh)")
+	}
+	if nodeKey(&g1) == nodeKey(&g3) {
+		t.Error("groups with different names must differ")
+	}
+	if nodeKey(&g1) == nodeKey(&pn) {
+		t.Error("a group key must never collide with a proxy key")
+	}
+}
+
 func TestParsePlainAndGarbage(t *testing.T) {
 	body := linkA + "\n# comment\nssr://nope@h:443\n\n" + linkB + "\n"
 	o, err := Parse(body, "sub-1", FormatAuto)

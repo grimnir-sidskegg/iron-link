@@ -56,7 +56,9 @@ func (m *manager) doctor(_ api.Request) api.Response {
 	// but no camouflage row).
 	var activeNode, camNode *store.Node
 	if prof, _ := m.activeProfileForDoctor(); prof != nil {
-		if n := prof.ActiveNode(); n != nil {
+		// A group has no endpoint of its own to probe (its members are diagnosed
+		// individually), so it drives no per-node doctor row.
+		if n := prof.ActiveNode(); n != nil && !n.IsGroup() {
 			activeNode = n
 			if engine.HasCamouflage(n.Profile()) {
 				camNode = n
@@ -208,6 +210,9 @@ func (m *manager) doctorNodes() api.Response {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			n := &prof.Nodes[i]
+			if n.IsGroup() {
+				return // a group has no endpoint to probe; its members get their own rows
+			}
 			var rows []api.DoctorCheck
 			if hc, ok := nodeHealth(ctx, n, probeURL, tunActive); ok {
 				rows = append(rows, hc)

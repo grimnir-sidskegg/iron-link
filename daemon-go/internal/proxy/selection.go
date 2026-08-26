@@ -26,6 +26,9 @@ var corePriority = []api.CoreType{api.CoreSingBox, api.CoreXray}
 // per-protocol verdict lives in each Profile's dialableBy, so this is
 // protocol-agnostic — adding a protocol never edits selection.
 func EligibleCores(p Profile) []api.CoreType {
+	if p == nil { // a group node has no proxy profile — no core dials it
+		return nil
+	}
 	var eligible []api.CoreType
 	for _, c := range corePriority {
 		if p.dialableBy(c) {
@@ -47,6 +50,9 @@ func EligibleCores(p Profile) []api.CoreType {
 //  5. otherwise → deterministic fallback: the first eligible core in
 //     corePriority order.
 func SelectCore(p Profile, tunEngine api.CoreType, override *api.CoreType) (api.CoreType, error) {
+	if p == nil {
+		return "", fmt.Errorf("a group node has no proxy profile to select a core for")
+	}
 	core, err := selectFromEligible(EligibleCores(p), tunEngine, override)
 	if err != nil {
 		return "", fmt.Errorf("%w (%s)", err, p.DisplayName())

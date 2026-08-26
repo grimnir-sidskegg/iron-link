@@ -136,12 +136,37 @@ func (d *ProfileDoc) UnmarshalJSON(b []byte) error {
 	return fmt.Errorf("node profile is empty")
 }
 
-// Node is one stored node: identity, its proxy profile, and the user prefs.
+// Node is one stored node: identity, its proxy profile OR a group spec, and the
+// user prefs. Exactly one of Doc / Group is populated: a dialable node carries
+// Doc (Group nil); a member group carries Group (Doc.P nil). SubID set = the
+// group/node came from a subscription (a provider group); nil = user-created.
 type Node struct {
 	ID          string     `json:"id"`
 	SubID       *string    `json:"sub_id"`
 	Doc         ProfileDoc `json:"profile"`
+	Group       *GroupSpec `json:"group,omitempty"`
 	Preferences NodePrefs  `json:"preferences"`
+}
+
+// GroupSpec is a member group: a named "Auto" node that lowers to a sing-box
+// urltest (fastest-by-ping) over its members. Membership is EITHER an explicit
+// list of member node UUIDs (Members) OR every non-group node of a subscription
+// (AllOfSub) — exactly one is set. Probe carries the health-check tuning; zero
+// fields fall back to the sing-box urltest defaults.
+type GroupSpec struct {
+	Name     string     `json:"name"`
+	Members  []string   `json:"members,omitempty"`
+	AllOfSub *string    `json:"all_of_sub,omitempty"`
+	Probe    GroupProbe `json:"probe"`
+}
+
+// GroupProbe is the urltest health-check tuning. Zero values mean "use the
+// sing-box default": URL "" = the built-in 204 endpoint, IntervalSec 0 = 3m,
+// Tolerance 0 = 50ms.
+type GroupProbe struct {
+	URL         string `json:"url,omitempty"`
+	IntervalSec uint32 `json:"interval_sec,omitempty"`
+	Tolerance   uint16 `json:"tolerance,omitempty"`
 }
 
 // NewNode wraps a parsed profile into a stored node with a fresh id.
@@ -149,7 +174,15 @@ func NewNode(p proxy.Profile, subID *string) Node {
 	return Node{ID: uuid.New(), SubID: subID, Doc: ProfileDoc{P: p}}
 }
 
-// Profile returns the node's proxy profile (nil only for a zero node).
+// NewGroupNode wraps a group spec into a stored node with a fresh id.
+func NewGroupNode(g GroupSpec, subID *string) Node {
+	return Node{ID: uuid.New(), SubID: subID, Group: &g}
+}
+
+// IsGroup reports whether this node is a member group (vs a dialable node).
+func (n *Node) IsGroup() bool { return n.Group != nil }
+
+// Profile returns the node's proxy profile (nil for a group node or a zero node).
 func (n *Node) Profile() proxy.Profile { return n.Doc.P }
 
 // Vless returns the node's VLESS config, or nil when the node is another
@@ -159,8 +192,12 @@ func (n *Node) Vless() *proxy.VlessConfig {
 	return v
 }
 
-// DisplayName forwards to the underlying profile's display name.
+// DisplayName is the group name for a group node, else the proxy profile's
+// display name ("" for a zero node).
 func (n *Node) DisplayName() string {
+	if n.Group != nil {
+		return n.Group.Name
+	}
 	if n.Doc.P == nil {
 		return ""
 	}
@@ -175,11 +212,20 @@ type NodePrefs struct {
 
 // -- read accessors ----------------------------------------------------------
 
-// FindNodeByName returns the node whose display name equals name (mirrors the
-// Rust Profile::find_node_by_name), or nil.
+// FindNodeByName returns the node whose display name equals name, or nil. A
+// dialable node WINS a name tie with a group structurally (two passes: dialable
+// nodes first, groups second) — not by store position, which
+// ReplaceSubscriptionNodes reorders. This mirrors the placeholder guard that
+// keeps a provider's carrier host out of the node stream; the two-pass rule is
+// the backstop if a name still collides.
 func (p *Profile) FindNodeByName(name string) *Node {
 	for i := range p.Nodes {
-		if p.Nodes[i].DisplayName() == name {
+		if !p.Nodes[i].IsGroup() && p.Nodes[i].DisplayName() == name {
+			return &p.Nodes[i]
+		}
+	}
+	for i := range p.Nodes {
+		if p.Nodes[i].IsGroup() && p.Nodes[i].DisplayName() == name {
 			return &p.Nodes[i]
 		}
 	}

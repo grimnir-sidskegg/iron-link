@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"time"
 
 	"ironlink/daemon/internal/api"
@@ -121,6 +122,19 @@ func (m *manager) listNodes(req api.Request) api.Response {
 	infos := make([]api.NodeInfo, 0, len(p.Nodes))
 	for i := range p.Nodes {
 		n := &p.Nodes[i]
+		active := p.ActiveNodeID != nil && *p.ActiveNodeID == n.ID
+		if n.IsGroup() {
+			infos = append(infos, api.NodeInfo{
+				ID:            n.ID,
+				Name:          n.DisplayName(),
+				SubID:         n.SubID,
+				Active:        active,
+				EligibleCores: []api.CoreType{}, // wire shape: always an array
+				Kind:          api.NodeKindGroup,
+				Members:       resolveGroupMemberIDs(p, n),
+			})
+			continue
+		}
 		prof := n.Profile()
 		eligible := proxy.EligibleCores(prof)
 		if eligible == nil {
@@ -134,11 +148,44 @@ func (m *manager) listNodes(req api.Request) api.Response {
 			Protocol:      string(prof.Kind()),
 			Transport:     prof.TransportLabel(),
 			Security:      prof.SecurityLabel(),
-			Active:        p.ActiveNodeID != nil && *p.ActiveNodeID == n.ID,
+			Active:        active,
 			EligibleCores: eligible,
 		})
 	}
 	return api.Response{Status: api.StatusNodes, Nodes: infos}
+}
+
+// resolveGroupMemberIDs returns a group's member node ids, resolved against the
+// profile's current nodes: an explicit Members list filtered to ids that still
+// exist and are not themselves groups; an AllOfSub group expands to every
+// dialable node of that subscription. Members that no longer resolve (a churned
+// or removed node) are dropped, with the count logged — an explicit user list
+// is the only membership that can silently shed this way (AllOfSub is derived
+// fresh each call). Never returns nil (wire shape: an array).
+func resolveGroupMemberIDs(p *store.Profile, g *store.Node) []string {
+	ids := []string{}
+	if g.Group.AllOfSub != nil {
+		sub := *g.Group.AllOfSub
+		for i := range p.Nodes {
+			n := &p.Nodes[i]
+			if !n.IsGroup() && n.SubID != nil && *n.SubID == sub {
+				ids = append(ids, n.ID)
+			}
+		}
+		return ids
+	}
+	dropped := 0
+	for _, id := range g.Group.Members {
+		if n := p.FindNodeByID(id); n != nil && !n.IsGroup() {
+			ids = append(ids, id)
+		} else {
+			dropped++
+		}
+	}
+	if dropped > 0 {
+		fmt.Fprintf(os.Stderr, "iron-link-daemon: group %q dropped %d unresolved member(s)\n", g.Group.Name, dropped)
+	}
+	return ids
 }
 
 // resolveNode finds a node by display name OR id.
@@ -208,6 +255,9 @@ func (m *manager) setNodePrefs(req api.Request) api.Response {
 		if err != nil {
 			return api.Response{}, err
 		}
+		if n.IsGroup() {
+			return api.Response{}, fmt.Errorf("a group has no core override; pin a member instead")
+		}
 		// nil core_override CLEARS the pin (back to "selection decides").
 		n.Preferences.CoreOverride = req.CoreOverride
 		msg := "core override cleared"
@@ -234,6 +284,10 @@ func (m *manager) listSubscriptions(req api.Request) api.Response {
 		s := &p.Subscriptions[i]
 		count := 0
 		for j := range p.Nodes {
+			// node_count means dialable nodes; a provider group is not one.
+			if p.Nodes[j].IsGroup() {
+				continue
+			}
 			if p.Nodes[j].SubID != nil && *p.Nodes[j].SubID == s.ID {
 				count++
 			}

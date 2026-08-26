@@ -260,6 +260,73 @@ func TestProfileMutators(t *testing.T) {
 	}
 }
 
+// TestGroupNodeRoundTrip: a group node serializes with a null profile + a group
+// block, survives a JSON round-trip with its spec intact, and reports IsGroup /
+// DisplayName / nil Profile() correctly (no panic on the missing proxy).
+func TestGroupNodeRoundTrip(t *testing.T) {
+	sub := "s1"
+	g := NewGroupNode(GroupSpec{
+		Name:    "Auto",
+		Members: []string{"m1", "m2"},
+		Probe:   GroupProbe{URL: "https://example.com/204", IntervalSec: 180, Tolerance: 150},
+	}, &sub)
+
+	if !g.IsGroup() {
+		t.Fatal("NewGroupNode must be a group")
+	}
+	if g.DisplayName() != "Auto" {
+		t.Errorf("DisplayName = %q, want Auto", g.DisplayName())
+	}
+	if g.Profile() != nil {
+		t.Errorf("a group node has no proxy profile, got %+v", g.Profile())
+	}
+
+	raw, err := json.Marshal(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"profile":null`) {
+		t.Errorf("group node must serialize a null profile: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"group":`) {
+		t.Errorf("group node must serialize a group block: %s", raw)
+	}
+
+	var back Node
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatal(err)
+	}
+	if !back.IsGroup() || back.DisplayName() != "Auto" {
+		t.Fatalf("round-trip lost the group: %+v", back)
+	}
+	if !reflect.DeepEqual(back.Group.Members, []string{"m1", "m2"}) {
+		t.Errorf("members = %v, want [m1 m2]", back.Group.Members)
+	}
+	if back.Group.Probe.IntervalSec != 180 || back.Group.Probe.Tolerance != 150 {
+		t.Errorf("probe = %+v", back.Group.Probe)
+	}
+	if back.SubID == nil || *back.SubID != "s1" {
+		t.Errorf("sub id lost: %+v", back.SubID)
+	}
+}
+
+// TestFindNodeByNameNodeBeatsGroup: a dialable node wins a name tie with a group
+// STRUCTURALLY (two-pass), independent of store order — the group is stored
+// FIRST here, yet the dialable node still wins.
+func TestFindNodeByNameNodeBeatsGroup(t *testing.T) {
+	p := NewProfile("m")
+	p.AddNode(NewGroupNode(GroupSpec{Name: "Auto", Members: []string{"x"}}, nil))
+	v := &proxy.VlessConfig{ServerName: "Auto", UUID: "u", Address: "1.1.1.1", Port: 443,
+		Encryption: "none", Security: proxy.Security{Kind: proxy.SecurityNone},
+		Transport: proxy.Transport{Kind: proxy.TransportTCP}}
+	nodeID := p.AddNode(NewNode(v, nil))
+
+	got := p.FindNodeByName("Auto")
+	if got == nil || got.IsGroup() || got.ID != nodeID {
+		t.Fatalf("FindNodeByName(Auto) = %+v, want the dialable node %s", got, nodeID)
+	}
+}
+
 func TestRoutingMutators(t *testing.T) {
 	p := NewProfile("m")
 	if p.ActiveRouting() == nil || p.ActiveRouting().Name != "default" {

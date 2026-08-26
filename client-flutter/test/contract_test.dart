@@ -203,13 +203,24 @@ final responseCases = <String, void Function(Response)>{
   },
   'responses/nodes.json': (r) {
     final nodes = (r as NodesResponse).nodes;
-    expect(nodes, hasLength(2));
+    expect(nodes, hasLength(3));
     expect(nodes[0].coreOverride, CoreType.xray);
     expect(nodes[0].active, isTrue);
     expect(nodes[1].subId, isNull);
     expect(nodes[1].transport, 'xhttp');
     expect(nodes[0].eligibleCores, [CoreType.singBox, CoreType.xray]);
     expect(nodes[1].eligibleCores, [CoreType.xray]);
+    // Leniency: a dialable row has no kind/members.
+    expect(nodes[0].kind, '');
+    expect(nodes[0].isGroup, isFalse);
+    expect(nodes[0].members, isEmpty);
+    // The group row.
+    expect(nodes[2].isGroup, isTrue);
+    expect(nodes[2].name, 'Auto');
+    expect(nodes[2].subId, 's1');
+    expect(nodes[2].members, ['3f2a']);
+    expect(nodes[2].protocol, '');
+    expect(nodes[2].eligibleCores, isEmpty);
   },
   'responses/routing_config.json': (r) {
     final cfg = (r as RoutingConfigResponse).routingConfig;

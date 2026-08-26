@@ -315,6 +315,9 @@ type CamouflageReport struct {
 // so it is excluded rather than TCP-probed into a spurious "unreachable". A
 // plain node (no SNI) is excluded too.
 func HasCamouflage(p proxy.Profile) bool {
+	if p == nil { // a group node has no server to probe
+		return false
+	}
 	_, ok := p.CamouflageSNI()
 	return ok && p.ServerNetwork() == "tcp"
 }

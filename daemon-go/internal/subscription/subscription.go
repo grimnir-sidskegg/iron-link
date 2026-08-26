@@ -153,18 +153,26 @@ func Refresh(ctx context.Context, p *store.Profile, only, ua string) []Result {
 }
 
 // diffNodes counts the identity changes a replace will make (matched by
-// prefsKey), for the SubscriptionUpdated event.
+// nodeKey), for the SubscriptionUpdated event. GROUPS are excluded on both
+// sides: the wire counts (Result.Count, list_subscriptions node_count) all mean
+// "dialable nodes", so a group appearing/vanishing must not move Added/Removed.
 func diffNodes(p *store.Profile, subID string, newNodes []store.Node) (added, removed int) {
 	old := map[prefsKey]bool{}
 	for i := range p.Nodes {
 		n := &p.Nodes[i]
+		if n.IsGroup() {
+			continue
+		}
 		if n.SubID != nil && *n.SubID == subID {
-			old[profileKey(n.Profile())] = true
+			old[nodeKey(n)] = true
 		}
 	}
 	fresh := map[prefsKey]bool{}
 	for i := range newNodes {
-		key := profileKey(newNodes[i].Profile())
+		if newNodes[i].IsGroup() {
+			continue
+		}
+		key := nodeKey(&newNodes[i])
 		fresh[key] = true
 		if !old[key] {
 			added++
@@ -196,7 +204,7 @@ type prefsKey struct {
 	security  string
 }
 
-// profileKey builds the refresh-diff key for a node's profile.
+// profileKey builds the refresh-diff key for a node's proxy profile.
 func profileKey(p proxy.Profile) prefsKey {
 	return prefsKey{
 		kind:      p.Kind(),
@@ -206,6 +214,18 @@ func profileKey(p proxy.Profile) prefsKey {
 		transport: p.TransportLabel(),
 		security:  p.SecurityLabel(),
 	}
+}
+
+// nodeKey is the refresh identity of ANY stored node: profileKey for a dialable
+// node, a name-keyed group key for a group. The synthetic "group" kind is not a
+// registered proxy.Protocol, so a group key can never collide with a real
+// node's key. This is what reconcile/diffNodes must use — profileKey alone
+// dereferences a group's nil profile.
+func nodeKey(n *store.Node) prefsKey {
+	if n.IsGroup() {
+		return prefsKey{kind: proxy.Protocol("group"), identity: n.Group.Name}
+	}
+	return profileKey(n.Profile())
 }
 
 // reconcile carries each surviving node's STABLE identity across a refresh: its
@@ -227,10 +247,10 @@ func reconcile(p *store.Profile, subID string, newNodes []store.Node) {
 		if n.SubID == nil || *n.SubID != subID {
 			continue
 		}
-		prev[profileKey(n.Profile())] = identity{id: n.ID, core: n.Preferences.CoreOverride}
+		prev[nodeKey(n)] = identity{id: n.ID, core: n.Preferences.CoreOverride}
 	}
 	for i := range newNodes {
-		saved, ok := prev[profileKey(newNodes[i].Profile())]
+		saved, ok := prev[nodeKey(&newNodes[i])]
 		if !ok {
 			continue
 		}

@@ -47,6 +47,9 @@ func TestXrayThroughput(t *testing.T) {
 		}
 		var node *store.Node
 		for j := range prof.Nodes {
+			if prof.Nodes[j].IsGroup() {
+				continue // a group has no Vless() outbound to download through
+			}
 			if strings.Contains(prof.Nodes[j].DisplayName(), frag) {
 				node = &prof.Nodes[j]
 				break
