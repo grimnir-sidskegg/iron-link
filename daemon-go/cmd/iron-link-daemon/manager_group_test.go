@@ -263,6 +263,46 @@ func TestGetGroupReturnsStoredSpec(t *testing.T) {
 	}
 }
 
+// TestGetNodeReturnsConfig: get_node returns a dialable node's full stored
+// config ({name, protocol, profile:{…}}) — the endpoint and the nested security
+// front the list_nodes row drops — and rejects a group or an unknown ref.
+func TestGetNodeReturnsConfig(t *testing.T) {
+	m := groupFixtureManager(t)
+
+	resp := m.Handle(api.Request{Command: api.CmdGetNode, Node: strPtr("node-x")})
+	if resp.Status != api.StatusNodeConfig {
+		t.Fatalf("get_node: %+v", resp)
+	}
+	var env struct {
+		Name     string                 `json:"name"`
+		Protocol string                 `json:"protocol"`
+		Profile  map[string]interface{} `json:"profile"`
+	}
+	if err := json.Unmarshal(resp.NodeConfig, &env); err != nil {
+		t.Fatalf("decode node_config: %v", err)
+	}
+	if env.Name != "node-x" || env.Protocol != "vless" {
+		t.Errorf("node_config envelope = %+v", env)
+	}
+	if env.Profile["address"] != "203.0.113.1" {
+		t.Errorf("profile.address = %v, want the stored endpoint", env.Profile["address"])
+	}
+	security, _ := env.Profile["security"].(map[string]interface{})
+	reality, _ := security["reality"].(map[string]interface{})
+	if reality["sni"] != "google.com" {
+		t.Errorf("profile.security.reality.sni = %v, want the stored front", reality["sni"])
+	}
+
+	// A group has no endpoint config — rejected (its shape is get_group's).
+	if r := m.Handle(api.Request{Command: api.CmdGetNode, Node: strPtr("Auto")}); r.Status != api.StatusError {
+		t.Errorf("get_node on a group must error: %+v", r)
+	}
+	// An unknown ref errors.
+	if r := m.Handle(api.Request{Command: api.CmdGetNode, Node: strPtr("nope")}); r.Status != api.StatusError {
+		t.Errorf("get_node on an unknown ref must error: %+v", r)
+	}
+}
+
 // TestUpsertRoutingRejectsGroupTarget: a routing rule cannot target a group —
 // the group's urltest exists only while it is the active node, so such a rule
 // would fail an unrelated activation. It is rejected at authoring time.

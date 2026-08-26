@@ -25,6 +25,7 @@ sealed class Response {
         'routing' => RoutingResponse.fromJson(json),
         'routing_config' => RoutingConfigResponse.fromJson(json),
         'group_config' => GroupConfigResponse.fromJson(json),
+        'node_config' => NodeConfigResponse.fromJson(json),
         'routing_schema' => RoutingSchemaResponse.fromJson(json),
         'diagnosis' => DiagnosisResponse.fromJson(json),
         'app_traffic' => AppTrafficResponse.fromJson(json),
@@ -221,6 +222,21 @@ final class GroupConfigResponse extends Response {
         };
 
   final Map<String, Object?> groupConfig;
+}
+
+/// `node_config` — ONE dialable node's full stored config ({name, protocol,
+/// profile:{…every configured field…}}), the `get_node` reply behind the
+/// read-only node inspector.
+final class NodeConfigResponse extends Response {
+  const NodeConfigResponse({this.nodeConfig = const {}});
+
+  NodeConfigResponse.fromJson(Map<String, Object?> json)
+      : nodeConfig = switch (json['node_config']) {
+          final Map<String, Object?> m => m,
+          _ => const {},
+        };
+
+  final Map<String, Object?> nodeConfig;
 }
 
 /// `routing_schema` — the routing-form schema (see [RoutingSchema]).

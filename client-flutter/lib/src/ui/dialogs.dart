@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../ipc/client.dart';
 import '../wire/wire.dart';
 import 'theme/app_colors.dart';
+import 'theme/app_typography.dart';
 
 /// Prompts for one thing to add — a node share link OR a subscription URL.
 /// Resolves to the trimmed string, or null on cancel. The caller routes by
@@ -152,6 +153,110 @@ class DiagnosisDialog extends StatelessWidget {
               subtitle: stage.error == null ? null : Text(stage.error!),
             ),
         ],
+      ),
+      actions: [
+        FilledButton(
+            onPressed: () => Navigator.pop(context), child: const Text('Close')),
+      ],
+    );
+  }
+}
+
+/// Read-only inspector for one node's full stored config — the `get_node`
+/// reply ({name, protocol, profile:{…}}). Every configured field is shown,
+/// flattened to a `dotted.path` = value row (nested security/transport params
+/// included), values selectable so an address or id can be copied. Purely a
+/// viewer: nothing here edits.
+class NodeDetailsDialog extends StatelessWidget {
+  const NodeDetailsDialog({super.key, required this.config});
+
+  final Map<String, Object?> config;
+
+  /// Flattens a decoded-JSON value to leaf rows, preserving field order. Nested
+  /// objects join with dots (`security.reality.sni`); lists index (`alpn[0]`);
+  /// an empty object/list becomes a single `{}` / `[]` leaf so the field still
+  /// shows.
+  static void _flatten(
+      String prefix, Object? v, List<MapEntry<String, String>> out) {
+    if (v is Map) {
+      if (v.isEmpty) {
+        out.add(MapEntry(prefix, '{}'));
+        return;
+      }
+      v.forEach((k, val) {
+        final key = prefix.isEmpty ? '$k' : '$prefix.$k';
+        _flatten(key, val, out);
+      });
+    } else if (v is List) {
+      if (v.isEmpty) {
+        out.add(MapEntry(prefix, '[]'));
+        return;
+      }
+      for (var i = 0; i < v.length; i++) {
+        _flatten('$prefix[$i]', v[i], out);
+      }
+    } else {
+      out.add(MapEntry(prefix, v == null ? '—' : '$v'));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.iron;
+    final name = config['name'] is String ? config['name'] as String : '';
+    final protocol =
+        config['protocol'] is String ? config['protocol'] as String : '';
+    final profile = config['profile'];
+
+    final rows = <MapEntry<String, String>>[];
+    if (protocol.isNotEmpty) rows.add(MapEntry('protocol', protocol));
+    if (profile is Map<String, Object?>) _flatten('', profile, rows);
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.info_outline),
+          const SizedBox(width: 8),
+          Expanded(child: Text(name.isEmpty ? 'Node details' : name)),
+        ],
+      ),
+      content: SizedBox(
+        width: 480,
+        child: rows.isEmpty
+            ? const Text('No fields to show.')
+            : SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final row in rows)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 150,
+                              child: Text(row.key,
+                                  style: TextStyle(
+                                      color: t.faint,
+                                      fontFamily: kMonoFamily,
+                                      fontSize: 12)),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: SelectableText(row.value,
+                                  style: TextStyle(
+                                      color: t.text,
+                                      fontFamily: kMonoFamily,
+                                      fontSize: 12)),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
       ),
       actions: [
         FilledButton(

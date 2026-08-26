@@ -320,6 +320,12 @@ class DaemonClient {
   Future<Map<String, Object?>> getGroup(String group) async =>
       (await _expect<GroupConfigResponse>(GetGroupRequest(group))).groupConfig;
 
+  /// Returns one dialable node's full stored config ({name, protocol,
+  /// profile:{…}}) by id or name — the read-only inspector's source, exposing
+  /// the endpoint and security/transport fields the [listNodes] row omits.
+  Future<Map<String, Object?>> getNode(String node) async =>
+      (await _expect<NodeConfigResponse>(GetNodeRequest(node))).nodeConfig;
+
   /// Returns one config's full JSON document — the read half of
   /// [upsertRouting].
   Future<Map<String, Object?>> getRouting(String routing) async =>

@@ -364,6 +364,52 @@ func (m *manager) getGroup(req api.Request) api.Response {
 	return api.Response{Status: api.StatusGroupConfig, GroupConfig: raw}
 }
 
+// getNode returns one dialable node's full stored config for the read-only
+// inspector: {name, protocol, profile:{…}} where profile is every configured
+// field of the parsed proxy config (address/port, the security front, the
+// transport params) — the detail the resolved list_nodes row drops. A group
+// row has no endpoint config and is rejected (its structure is get_group's).
+func (m *manager) getNode(req api.Request) api.Response {
+	if req.Node == nil || *req.Node == "" {
+		return errResp("get_node requires a node name or id")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	name, err := m.resolveProfileName(req)
+	if err != nil {
+		return errResp(err.Error())
+	}
+	p, err := m.store.LoadProfile(name)
+	if err != nil {
+		return errResp(err.Error())
+	}
+	n, err := resolveNode(p, *req.Node)
+	if err != nil {
+		return errResp(err.Error())
+	}
+	if n.IsGroup() {
+		return errResp(fmt.Sprintf("node %q is a group, not a dialable node", *req.Node))
+	}
+	prof := n.Profile()
+	body, err := json.Marshal(prof)
+	if err != nil {
+		return errResp("encode node: " + err.Error())
+	}
+	raw, err := json.Marshal(struct {
+		Name     string          `json:"name"`
+		Protocol string          `json:"protocol"`
+		Profile  json.RawMessage `json:"profile"`
+	}{
+		Name:     prof.DisplayName(),
+		Protocol: string(prof.Kind()),
+		Profile:  body,
+	})
+	if err != nil {
+		return errResp("encode node: " + err.Error())
+	}
+	return api.Response{Status: api.StatusNodeConfig, NodeConfig: raw}
+}
+
 func (m *manager) listSubscriptions(req api.Request) api.Response {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -41,6 +41,7 @@ const (
 	CmdSetNodePrefs     = "set_node_prefs"
 	CmdUpsertGroup      = "upsert_group"
 	CmdGetGroup         = "get_group"
+	CmdGetNode          = "get_node"
 	CmdListSubs         = "list_subscriptions"
 	CmdAddSub           = "add_subscription"
 	CmdRefreshSubs      = "refresh_subscriptions"
@@ -171,6 +172,7 @@ const (
 	StatusRouting       = "routing"
 	StatusRoutingConfig = "routing_config"
 	StatusGroupConfig   = "group_config"
+	StatusNodeConfig    = "node_config"
 	StatusRoutingSchema = "routing_schema"
 	StatusDiagnosis     = "diagnosis"
 	StatusSettings      = "settings"
@@ -392,6 +394,12 @@ type Response struct {
 	// upsert_group, so an editor round-trips the true membership mode and probe
 	// (neither of which the resolved list_nodes group row carries)
 	GroupConfig json.RawMessage `json:"group_config,omitempty"`
+	// node_config (get_node): ONE dialable node's full stored config for a
+	// read-only inspector — {name, protocol, profile:{…every configured field…}}.
+	// The list_nodes row carries only the badges (protocol/transport/security);
+	// this exposes the endpoint (address/port), the security front (sni/pbk/…),
+	// and the transport params that the row leaves out.
+	NodeConfig json.RawMessage `json:"node_config,omitempty"`
 	// routing_schema
 	RoutingSchema *RoutingSchema `json:"routing_schema,omitempty"`
 	// diagnosis

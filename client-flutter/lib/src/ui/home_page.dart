@@ -350,6 +350,17 @@ class _HomePageState extends State<HomePage> {
     return ok;
   }
 
+  Future<void> _nodeDetails(NodeInfo node) async {
+    // A store read (no probing), so a plain fetch-then-show is fine — there is
+    // no timeout to spin through.
+    final config = await guard(context, () => widget.client.getNode(node.name));
+    if (config == null || !mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => NodeDetailsDialog(config: config),
+    );
+  }
+
   Future<void> _diagnose(NodeInfo node) async {
     // Open the window at once and let it drive the probe: it shows a spinner
     // immediately and swaps in the verdict (or the error) when the daemon
@@ -381,6 +392,8 @@ class _HomePageState extends State<HomePage> {
         }
       case 'edit':
         await _editGroup(node);
+      case 'details':
+        await _nodeDetails(node);
       case 'test':
         await _probe([node.name]);
       case 'diagnose':
@@ -826,6 +839,7 @@ class _HomePageState extends State<HomePage> {
               // core pin apply to its members, not to it.
               if (!node.isGroup) ...[
                 const PopupMenuDivider(),
+                const PopupMenuItem(value: 'details', child: Text('Details…')),
                 const PopupMenuItem(value: 'test', child: Text('Test latency')),
                 const PopupMenuItem(value: 'diagnose', child: Text('Diagnose')),
                 const PopupMenuDivider(),

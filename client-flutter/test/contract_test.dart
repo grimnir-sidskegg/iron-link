@@ -80,6 +80,7 @@ final requestCases = <String, Request>{
   'requests/select_routing.json': const SelectRoutingRequest('basic'),
   'requests/get_routing.json': const GetRoutingRequest('r1'),
   'requests/get_group.json': const GetGroupRequest('Auto'),
+  'requests/get_node.json': const GetNodeRequest('Tokyo'),
   'requests/routing_schema.json': const RoutingSchemaRequest(),
   'requests/set_active_profile.json': const SetActiveProfileRequest('main'),
   'requests/set_node_prefs_clear.json': const SetNodePrefsRequest('3f2a'),
@@ -248,6 +249,18 @@ final responseCases = <String, void Function(Response)>{
     expect(g['all_of_sub'], 's1');
     expect((g['probe'] as Map)['interval_sec'], 180);
     expect(g.containsKey('members'), isFalse);
+  },
+  'responses/node_config.json': (r) {
+    final c = (r as NodeConfigResponse).nodeConfig;
+    expect(c['name'], 'Tokyo');
+    expect(c['protocol'], 'vless');
+    final profile = c['profile'] as Map<String, Object?>;
+    expect(profile['address'], '198.51.100.7');
+    expect(profile['port'], 443);
+    // The nested security front is preserved for the inspector to flatten.
+    final security = profile['security'] as Map<String, Object?>;
+    expect(security['kind'], 'reality');
+    expect((security['reality'] as Map)['sni'], 'example.com');
   },
   'responses/routing_schema.json': (r) {
     final s = (r as RoutingSchemaResponse).routingSchema;

@@ -141,6 +141,8 @@ func (m *manager) Handle(req api.Request) api.Response {
 		return m.upsertGroup(req)
 	case api.CmdGetGroup:
 		return m.getGroup(req)
+	case api.CmdGetNode:
+		return m.getNode(req)
 	case api.CmdListSubs:
 		return m.listSubscriptions(req)
 	case api.CmdAddSub:

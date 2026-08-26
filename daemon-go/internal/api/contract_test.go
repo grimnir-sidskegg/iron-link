@@ -147,6 +147,7 @@ var sharedRequests = map[string]Request{
 	"upsert_routing":            {Command: CmdUpsertRouting, RoutingConfig: json.RawMessage(`{"id":"r1","name":"basic","rule_sets":[],"rules":[],"default_target":"DefaultProxy"}`)},
 	"upsert_group":              {Command: CmdUpsertGroup, Group: json.RawMessage(`{"name":"My Auto","members":["3f2a","9b1c"],"probe":{"interval_sec":180}}`)},
 	"get_group":                 {Command: CmdGetGroup, Node: ptr("Auto")},
+	"get_node":                  {Command: CmdGetNode, Node: ptr("Tokyo")},
 	"remove_routing":            {Command: CmdRemoveRouting, Routing: ptr("r1")},
 	"routing_schema":            {Command: CmdRoutingSchema},
 	"diagnose":                  {Command: CmdDiagnose, Node: ptr("tokyo")},
@@ -321,6 +322,9 @@ var sharedResponses = map[string]Response{
 	// get_group's read half: the stored spec's bytes must byte-match the fixture
 	// (the round-trip check compares the raw payload).
 	"group_config": {Status: StatusGroupConfig, GroupConfig: json.RawMessage(`{"name": "Auto", "all_of_sub": "s1", "probe": {"interval_sec": 180}}`)},
+	// get_node's read half: {name, protocol, profile:{…full config…}}; the
+	// payload bytes must byte-match the fixture (round-trip compares the raw).
+	"node_config": {Status: StatusNodeConfig, NodeConfig: json.RawMessage(`{"name": "Tokyo", "protocol": "vless", "profile": {"server_name": "Tokyo", "uuid": "00000000-0000-0000-0000-000000000001", "address": "198.51.100.7", "port": 443, "encryption": "none", "security": {"kind": "reality", "reality": {"sni": "example.com", "fp": "chrome", "pbk": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH", "sid": "01ab"}}, "transport": {"kind": "tcp"}}}`)},
 	"routing_schema": {Status: StatusRoutingSchema, RoutingSchema: routingSchemaLinuxDoc()},
 	"diagnosis": {Status: StatusDiagnosis, Diagnosis: &DiagnosisInfo{
 		Node: "tokyo", OK: false, FailedStage: "tls",

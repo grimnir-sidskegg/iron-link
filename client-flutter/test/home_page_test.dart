@@ -24,6 +24,7 @@ class _FakeClient extends DaemonClient {
   final List<String> selected = [];
   final List<String> switched = [];
   final List<String> probed = [];
+  final List<String> gotNode = [];
   final List<Map<String, Object?>> upsertedGroups = [];
 
   @override
@@ -43,6 +44,17 @@ class _FakeClient extends DaemonClient {
         'members': ['n1'],
         'probe': {'interval_sec': 90},
       };
+
+  /// The full stored config get_node hands back for the read-only inspector.
+  @override
+  Future<Map<String, Object?>> getNode(String node) async {
+    gotNode.add(node);
+    return const {
+      'name': 'Tokyo',
+      'protocol': 'vless',
+      'profile': {'address': '198.51.100.7', 'port': 443},
+    };
+  }
 
   @override
   Future<List<LatencyResult>> testLatency([List<String>? nodes]) async {
@@ -156,7 +168,27 @@ void main() {
     expect(find.text('Remove'), findsOneWidget);
     expect(find.text('Test latency'), findsNothing);
     expect(find.text('Diagnose'), findsNothing);
+    expect(find.text('Details…'), findsNothing);
     expect(find.text('Pin to sing-box'), findsNothing);
+  });
+
+  testWidgets('a node menu opens the read-only details inspector via get_node',
+      (tester) async {
+    final client = _FakeClient(nodes: [tokyo]);
+    await _pumpHome(tester, client);
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    expect(find.text('Details…'), findsOneWidget);
+
+    await tester.tap(find.text('Details…'));
+    await tester.pumpAndSettle();
+
+    // get_node was fetched by name, and the inspector rendered its fields.
+    expect(client.gotNode, ['Tokyo']);
+    expect(find.text('address'), findsOneWidget);
+    expect(find.text('198.51.100.7'), findsOneWidget);
+    expect(find.text('protocol'), findsOneWidget);
   });
 
   testWidgets('"Test all" skips groups (a group has no endpoint to probe)',

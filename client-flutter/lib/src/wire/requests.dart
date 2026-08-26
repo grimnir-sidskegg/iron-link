@@ -428,6 +428,17 @@ final class GetGroupRequest extends Request {
   Map<String, Object?> toJson() => {'command': 'get_group', 'node': group};
 }
 
+/// `get_node` — ONE dialable node's full stored config (by id or name), for the
+/// read-only inspector. Reuses the `node` field like the other node verbs.
+final class GetNodeRequest extends Request {
+  const GetNodeRequest(this.node);
+
+  final String node;
+
+  @override
+  Map<String, Object?> toJson() => {'command': 'get_node', 'node': node};
+}
+
 /// `upsert_group` — a user group's spec JSON ({id?, name, members?/all_of_sub?,
 /// probe?}); a missing id creates a new user group, an existing user-group id
 /// replaces it in place.
