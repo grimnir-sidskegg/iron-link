@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"ironlink/daemon/internal/api"
@@ -72,6 +73,60 @@ func Fetch(ctx context.Context, subURL string, allowInvalidCerts bool, ua string
 	return string(body), nil
 }
 
+// knownClientSuffixes are the Remnawave subscription client-type path segments
+// (GET /api/sub/{token}/{clientType}). A URL already ending in one of these is
+// left untouched — the user targeted a specific dialect on purpose.
+var knownClientSuffixes = []string{
+	"json", "v2ray-json", "clash", "mihomo",
+	"singbox", "singbox-legacy", "sing-box", "stash", "base64",
+}
+
+// jsonCandidateURL returns "<url>/json" when the format is auto or xray and the
+// URL carries no explicit client-type suffix. Remnawave serves its auto-select
+// balancer group only from the structured "/json" endpoint (XRAY_JSON); the
+// bare URL under a generic UA is a base64 link list with no group. ok is false
+// when probing would be wrong (a pinned non-xray dialect, or an already
+// suffixed URL), so the caller fetches the bare URL unchanged.
+func jsonCandidateURL(rawURL string, format Format) (string, bool) {
+	if format != FormatAuto && format != FormatXray {
+		return "", false
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+	trimmed := strings.TrimRight(u.Path, "/")
+	last := trimmed
+	if i := strings.LastIndex(trimmed, "/"); i >= 0 {
+		last = trimmed[i+1:]
+	}
+	for _, s := range knownClientSuffixes {
+		if strings.EqualFold(last, s) {
+			return "", false
+		}
+	}
+	u.Path = trimmed + "/json"
+	return u.String(), true
+}
+
+// fetchSubscriptionBody obtains a subscription body, preferring the Remnawave
+// "/json" endpoint (which carries the auto-select balancer group) when the
+// format is auto or xray and the URL has no explicit client-type suffix. It
+// falls back to the bare URL on any probe failure — a non-Remnawave provider, a
+// front-end path that does not route the suffix, or an older panel — so every
+// other provider behaves exactly as before. The probe is accepted only when it
+// parses as xray with at least one node, never on a stray 200 page.
+func fetchSubscriptionBody(ctx context.Context, sub *store.Subscription, format Format, ua string) (string, error) {
+	if candidate, ok := jsonCandidateURL(sub.URL, format); ok {
+		if body, err := Fetch(ctx, candidate, sub.AllowInvalidCerts, ua); err == nil {
+			if o, perr := Parse(body, sub.ID, FormatXray); perr == nil && len(o.Nodes) > 0 {
+				return body, nil
+			}
+		}
+	}
+	return Fetch(ctx, sub.URL, sub.AllowInvalidCerts, ua)
+}
+
 // Result is one subscription's refresh outcome (name + what happened).
 type Result struct {
 	SubID string
@@ -115,16 +170,17 @@ func Refresh(ctx context.Context, p *store.Profile, only, ua string) []Result {
 			continue
 		}
 
-		body, err := Fetch(ctx, sub.URL, sub.AllowInvalidCerts, ua)
-		if err != nil {
-			results = append(results, Result{SubID: sub.ID, Name: sub.Name, Err: err.Error()})
-			continue
-		}
 		// A stored format is validated at the wire boundary; a value this
-		// build no longer knows (downgrade) falls back to detection.
+		// build no longer knows (downgrade) falls back to detection. Resolve it
+		// BEFORE the fetch so the Remnawave "/json" probe is gated on it.
 		format, err := ParseFormat(sub.Format)
 		if err != nil {
 			format = FormatAuto
+		}
+		body, err := fetchSubscriptionBody(ctx, sub, format, ua)
+		if err != nil {
+			results = append(results, Result{SubID: sub.ID, Name: sub.Name, Err: err.Error()})
+			continue
 		}
 		// A parse failure — unrecognized dialect OR zero usable nodes — is a
 		// failed refresh: old nodes stay, last_updated stays. An empty body
