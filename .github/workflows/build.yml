@@ -2,6 +2,15 @@ name: Build & Release
 
 on:
   workflow_dispatch: # manual runs are the normal path — trigger a build on demand
+    inputs:
+      version:
+        description: >-
+          Test version to stamp, e.g. 0.1.99 — a real semver BELOW the release
+          under test so the update check offers that release. Blank = the
+          0.0.0-<sha> fallback, which is the "never compare, never prompt"
+          sentinel and so can never show an update.
+        required: false
+        default: ""
   # No build on every push to main: commits accumulate and are built when
   # wanted via the manual run above (each run still attaches the per-OS bundle
   # + Windows installer). A v* tag push additionally cuts a GitHub Release
@@ -52,9 +61,15 @@ jobs:
       - name: Compute version
         id: ver
         shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             version="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${INPUT_VERSION}" ]]; then
+            # A dispatch-stamped test build: a real version so the update check
+            # actually compares. Tolerate a leading v — CI re-adds it below.
+            version="${INPUT_VERSION#v}"
           else
             version="0.0.0-$(git rev-parse --short HEAD)"
           fi
