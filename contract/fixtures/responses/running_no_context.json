@@ -1,1 +1,1 @@
-{"status": "running", "entries": [{"role": "Proxy", "state": "running", "uptime_secs": 5}]}
+{"status": "running", "daemon_version": "v0.1.0", "entries": [{"role": "Proxy", "state": "running", "uptime_secs": 5}]}

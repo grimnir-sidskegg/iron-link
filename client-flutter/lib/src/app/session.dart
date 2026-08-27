@@ -104,6 +104,10 @@ class DaemonSession extends ChangeNotifier {
   /// auto-switch included) and refreshed by the backstop status poll.
   String? activeNodeLive;
 
+  /// The daemon's build version, read back from the status poll (null until
+  /// the first poll answers, or when the daemon predates the field).
+  String? daemonVersion;
+
   bool get isRunning => entries.any((e) => e.isRunning);
 
   /// Rolling traffic history (last [_trafficWindow] seconds) + session totals.
@@ -227,10 +231,12 @@ class DaemonSession extends ChangeNotifier {
           entries = reply.entries;
           active = reply.active ?? active;
           activeNodeLive = reply.activeNodeLive;
+          daemonVersion = reply.daemonVersion;
         case IdleResponse():
           entries = const [];
           active = null;
           activeNodeLive = null;
+          daemonVersion = reply.daemonVersion;
         default:
           return;
       }

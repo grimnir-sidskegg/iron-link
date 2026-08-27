@@ -127,7 +127,9 @@ final responseCases = <String, void Function(Response)>{
   'responses/error.json': (r) {
     expect((r as ErrorResponse).message, 'no such node: osaka');
   },
-  'responses/idle.json': (r) => expect(r, isA<IdleResponse>()),
+  'responses/idle.json': (r) {
+    expect((r as IdleResponse).daemonVersion, 'v0.1.0');
+  },
   'responses/latencies.json': (r) {
     r as LatenciesResponse;
     expect(r.latencies, hasLength(2));
@@ -147,12 +149,14 @@ final responseCases = <String, void Function(Response)>{
     expect(r.active?.profile, 'main');
     expect(r.active?.tun, isFalse);
     expect(r.activeNodeLive, 'Grimnir [VLESS - tcp]');
+    expect(r.daemonVersion, 'v0.1.0');
   },
   'responses/running_no_context.json': (r) {
     r as RunningResponse;
     expect(r.entries, hasLength(1));
     expect(r.active, isNull);
     expect(r.activeNodeLive, isNull);
+    expect(r.daemonVersion, 'v0.1.0');
   },
   'responses/running_group.json': (r) {
     r as RunningResponse;
@@ -160,6 +164,7 @@ final responseCases = <String, void Function(Response)>{
     expect(r.active?.node, 'Auto');
     expect(r.activeNodeLive, 'Frankfurt');
     expect(r.activeNodeLive, isNot(r.active?.node));
+    expect(r.daemonVersion, 'v0.1.0');
   },
   'responses/started.json': (r) {
     r as StartedResponse;
@@ -425,6 +430,12 @@ void main() {
       final r = Response.fromJson(
           {'status': 'switched', 'node': 'osaka', 'novel_field': true});
       expect((r as SwitchedResponse).node, 'osaka');
+    });
+    test('daemon_version is optional — an old daemon omits it', () {
+      final idle = Response.fromJson({'status': 'idle'});
+      expect((idle as IdleResponse).daemonVersion, isNull);
+      final running = Response.fromJson({'status': 'running', 'entries': []});
+      expect((running as RunningResponse).daemonVersion, isNull);
     });
   });
 

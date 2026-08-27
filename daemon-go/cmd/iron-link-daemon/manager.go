@@ -45,6 +45,10 @@ type manager struct {
 	store     *store.Store
 	hub       *ipc.Hub // set right after construction (hub's snapshot is m.Snapshot)
 	socksPort int      // TEST override of settings.socks_port (0 = settings)
+	// version is the daemon's build version (the package-level stamp, at least
+	// "dev"), carried on every status reply so clients can confirm what they
+	// talk to — e.g. after an update restart.
+	version string
 
 	// mu guards the session state. It IS held across engine.Start/Close —
 	// activations are deliberately serialized; a second Activate waits, then
@@ -67,7 +71,7 @@ type manager struct {
 }
 
 func newManager(st *store.Store) *manager {
-	return &manager{store: st}
+	return &manager{store: st, version: version}
 }
 
 // probeParams resolves the latency-probe endpoint and budget: settings,
@@ -751,10 +755,11 @@ func (m *manager) status() api.Response {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.sess == nil {
-		return api.Response{Status: api.StatusIdle}
+		return api.Response{Status: api.StatusIdle, DaemonVersion: m.version}
 	}
 	resp := api.Response{
 		Status:         api.StatusRunning,
+		DaemonVersion:  m.version,
 		Entries:        m.entriesLocked(),
 		Active:         m.active,
 		ActiveNodeLive: m.liveNodeNameLocked(),

@@ -15,7 +15,7 @@ sealed class Response {
         'stopped' => const StoppedResponse(),
         'running' => RunningResponse.fromJson(json),
         'activated' => ActivatedResponse.fromJson(json),
-        'idle' => const IdleResponse(),
+        'idle' => IdleResponse.fromJson(json),
         'switched' => SwitchedResponse.fromJson(json),
         'latencies' => LatenciesResponse.fromJson(json),
         'profiles' => ProfilesResponse.fromJson(json),
@@ -79,7 +79,11 @@ final class StoppedResponse extends Response {
 /// selector readback (a `urltest` auto-switch shows up ONLY here, never as
 /// a State event — hence the client's backstop poll).
 final class RunningResponse extends Response {
-  const RunningResponse({this.entries = const [], this.active, this.activeNodeLive});
+  const RunningResponse(
+      {this.entries = const [],
+      this.active,
+      this.activeNodeLive,
+      this.daemonVersion});
 
   RunningResponse.fromJson(Map<String, Object?> json)
       : entries = _objList(json['entries'])
@@ -88,11 +92,15 @@ final class RunningResponse extends Response {
         active = json['active'] is Map<String, Object?>
             ? PersistedEntry.fromJson(json['active'] as Map<String, Object?>)
             : null,
-        activeNodeLive = _strOpt(json['active_node_live']);
+        activeNodeLive = _strOpt(json['active_node_live']),
+        daemonVersion = _strOpt(json['daemon_version']);
 
   final List<CoreEntry> entries;
   final PersistedEntry? active;
   final String? activeNodeLive;
+
+  /// The daemon's build version; null from a daemon predating the field.
+  final String? daemonVersion;
 }
 
 /// `activated` — the reply to a successful `activate`.
@@ -109,7 +117,13 @@ final class ActivatedResponse extends Response {
 
 /// `idle` — no session is running.
 final class IdleResponse extends Response {
-  const IdleResponse();
+  const IdleResponse({this.daemonVersion});
+
+  IdleResponse.fromJson(Map<String, Object?> json)
+      : daemonVersion = _strOpt(json['daemon_version']);
+
+  /// The daemon's build version; null from a daemon predating the field.
+  final String? daemonVersion;
 }
 
 /// `switched` — the node NAME now selected.

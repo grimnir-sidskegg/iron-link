@@ -99,7 +99,7 @@ Future<Uint8List?> extractWindowsExeIconPng(String exePath) async {
     if (isPngBytes(img)) return Uint8List.fromList(img);
     final rgba = dibIconToRgba(img);
     if (rgba == null) return null;
-    return _rgbaToPng(rgba.$1, rgba.$2, rgba.$3);
+    return await _rgbaToPng(rgba.$1, rgba.$2, rgba.$3);
   } catch (_) {
     return null; // best-effort: any malformed/unreadable PE → letter avatar
   } finally {

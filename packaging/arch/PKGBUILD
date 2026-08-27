@@ -56,17 +56,21 @@ build() {
   local tags="with_gvisor,with_utls,with_clash_api,with_quic"
 
   # Go daemon — static (CGO off), embeds sing-box + xray, no runtime deps.
+  # The version stamp is the git-describe pkgver (e.g. 0.1.0.r12.gabc1234),
+  # not clean semver — good enough to identify the build.
   export CGO_ENABLED=0
   export GOFLAGS="-trimpath -mod=readonly -modcacherw"
   ( cd daemon-go
-    go build -tags "$tags" -ldflags="-s -w -buildid=" \
+    go build -tags "$tags" \
+      -ldflags="-s -w -buildid= -X main.version=v$pkgver" \
       -o bin/iron-link-daemon ./cmd/iron-link-daemon )
 
   # Flutter Linux GUI — produces $_bundle_dir (exe + lib/ + data/).
   ( cd client-flutter
     flutter config --enable-linux-desktop >/dev/null
     flutter pub get
-    flutter build linux --release )
+    flutter build linux --release \
+      --dart-define=IRON_LINK_VERSION=v$pkgver )
 }
 
 check() {

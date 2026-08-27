@@ -139,7 +139,7 @@ func TestBuildPlanEmbedsAllXrayNodes(t *testing.T) {
 func TestManagerIdleVerbs(t *testing.T) {
 	m := fixtureManager(t)
 
-	if got := m.Handle(api.Request{Command: api.CmdStatus}); got.Status != api.StatusIdle {
+	if got := m.Handle(api.Request{Command: api.CmdStatus}); got.Status != api.StatusIdle || got.DaemonVersion != "dev" {
 		t.Errorf("status while idle: %+v", got)
 	}
 	node := "node-b"

@@ -14,13 +14,31 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 
 	"ironlink/daemon/internal/ipc"
 	"ironlink/daemon/internal/store"
 )
 
+// version is the build-time stamp, set with
+// `-ldflags "-X main.version=vX.Y.Z"` by CI and the packaging scripts. A plain
+// `go build` leaves "dev" — Go's automatic VCS stamping is no substitute here
+// (the repo root has no go.mod, so the module version reads "(devel)").
+var version = "dev"
+
 func main() {
+	// The version flag must short-circuit BEFORE the Windows service dispatch:
+	// maybeRunWindows treats ANY argument as a service subcommand and errors on
+	// unknown ones, so this check runs first on all OSes.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--version", "-version", "version":
+			fmt.Println(versionString())
+			return
+		}
+	}
+
 	// On Windows this runs the SCM service loop or an install/uninstall/start/
 	// stop subcommand; elsewhere (and for an interactive Windows run) it returns
 	// handled=false and we fall through to the foreground path below.
@@ -38,6 +56,28 @@ func main() {
 		fmt.Fprintln(os.Stderr, "iron-link-daemon:", err)
 		os.Exit(1)
 	}
+}
+
+// versionString renders the one-line `--version` output: the stamped version,
+// plus the VCS revision when the build was unstamped (a dev build still
+// identifies the commit it came from, when the toolchain recorded one).
+func versionString() string {
+	v := version
+	if v == "dev" {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			for _, s := range info.Settings {
+				if s.Key == "vcs.revision" && s.Value != "" {
+					rev := s.Value
+					if len(rev) > 12 {
+						rev = rev[:12]
+					}
+					v = "dev (" + rev + ")"
+					break
+				}
+			}
+		}
+	}
+	return "iron-link-daemon " + v
 }
 
 // run is the daemon core: open the store, listen on the control endpoint, and

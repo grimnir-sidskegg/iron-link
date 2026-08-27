@@ -369,6 +369,12 @@ type Response struct {
 	Active         *PersistedEntry `json:"active,omitempty"`
 	ActiveNodeLive *string         `json:"active_node_live,omitempty"`
 
+	// running / idle (the status verb): the daemon's build version. Always
+	// populated there — the stamp is at least "dev", so omitempty never drops
+	// it in practice; clients must still parse it as optional (an older daemon
+	// omits the field entirely).
+	DaemonVersion string `json:"daemon_version,omitempty"`
+
 	// switched: the node NAME now selected; ok (add_node): the added node
 	Node string `json:"node,omitempty"`
 

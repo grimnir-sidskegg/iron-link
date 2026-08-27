@@ -253,7 +253,8 @@ var sharedResponses = map[string]Response{
 	"started":      {Status: StatusStarted, Message: "cores started", Role: ptr(RoleTun)},
 	"stopped_bare": {Status: StatusStopped},
 	"running_full": {
-		Status: StatusRunning,
+		Status:        StatusRunning,
+		DaemonVersion: "v0.1.0",
 		Entries: []CoreEntry{
 			{Role: RoleTun, State: StateRunning, UptimeSecs: 42},
 			{Role: RoleProxy, State: StateRunning, UptimeSecs: 42},
@@ -262,14 +263,16 @@ var sharedResponses = map[string]Response{
 		ActiveNodeLive: ptr("Grimnir [VLESS - tcp]"),
 	},
 	"running_no_context": {
-		Status:  StatusRunning,
-		Entries: []CoreEntry{{Role: RoleProxy, State: StateRunning, UptimeSecs: 5}},
+		Status:        StatusRunning,
+		DaemonVersion: "v0.1.0",
+		Entries:       []CoreEntry{{Role: RoleProxy, State: StateRunning, UptimeSecs: 5}},
 	},
 	// The active node is a group ("Auto"); active_node_live is the urltest's
 	// current member pick, DIFFERING from the group name — the "Auto -> now X"
 	// state the client's badge keys on.
 	"running_group": {
-		Status: StatusRunning,
+		Status:        StatusRunning,
+		DaemonVersion: "v0.1.0",
 		Entries: []CoreEntry{
 			{Role: RoleTun, State: StateRunning, UptimeSecs: 42},
 			{Role: RoleProxy, State: StateRunning, UptimeSecs: 42},
@@ -284,7 +287,7 @@ var sharedResponses = map[string]Response{
 			{Role: RoleProxy, State: StateRunning, UptimeSecs: 0},
 		},
 	},
-	"idle":     {Status: StatusIdle},
+	"idle":     {Status: StatusIdle, DaemonVersion: "v0.1.0"},
 	"switched": {Status: StatusSwitched, Node: "osaka"},
 	"latencies": {
 		Status: StatusLatencies,

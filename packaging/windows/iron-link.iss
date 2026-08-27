@@ -22,6 +22,11 @@
 #ifndef AppVersion
   #define AppVersion "0.0.0-dev"
 #endif
+; Windows VERSIONINFO is four numeric fields — it cannot hold a prerelease
+; string, so CI passes the digits-only X.Y.Z.0 separately from AppVersion.
+#ifndef VersionInfoVersion
+  #define VersionInfoVersion "0.0.0.0"
+#endif
 #ifndef DaemonExe
   #define DaemonExe "..\..\daemon-go\bin\iron-link-daemon.exe"
 #endif
@@ -39,6 +44,7 @@
 AppId={{B2A6F4E1-9C3D-4A57-8E2B-6F1D0C9A4E73}
 AppName=iron-link
 AppVersion={#AppVersion}
+VersionInfoVersion={#VersionInfoVersion}
 AppPublisher=iron-link
 DefaultDirName={autopf}\iron-link
 DefaultGroupName=iron-link

@@ -41,6 +41,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # Runs BEFORE every build step so the version can be stamped into the
+      # Go daemon (-X main.version), the Flutter client (--dart-define) and
+      # the installer. `numeric` is the digits-only X.Y.Z for the places that
+      # cannot hold a prerelease suffix (Windows VERSIONINFO, flutter
+      # --build-name): the tag version with any -suffix stripped, or 0.0.0
+      # for the sha fallback.
+      - name: Compute version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.0.0-$(git rev-parse --short HEAD)"
+          fi
+          numeric="${version%%-*}"
+          if [[ ! "$numeric" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            numeric="0.0.0"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "numeric=$numeric" >> "$GITHUB_OUTPUT"
+
       - name: Install Go toolchain
         uses: actions/setup-go@v5
         with:
@@ -66,7 +88,8 @@ jobs:
           TAGS="with_gvisor,with_utls,with_clash_api,with_quic"
           go vet -tags "$TAGS" ./...
           go test -tags "$TAGS" ./...
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags="-s -w -X main.version=v${{ steps.ver.outputs.version }}" \
             -tags "$TAGS" \
             -o bin/iron-link-daemon${{ runner.os == 'Windows' && '.exe' || '' }} \
             ./cmd/iron-link-daemon
@@ -92,7 +115,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         working-directory: client-flutter
-        run: flutter build windows --release
+        run: >
+          flutter build windows --release
+          --build-name=${{ steps.ver.outputs.numeric }}
+          --dart-define=IRON_LINK_VERSION=v${{ steps.ver.outputs.version }}
 
       - name: Upload Flutter app (Windows)
         if: runner.os == 'Windows'
@@ -103,19 +129,9 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Compute version
-        id: ver
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=0.0.0-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-          fi
-
       # Single-file installer for the Flutter client + the elevated daemon.
-      # Runs only on Windows, after both halves are built and the version is
-      # known. The .iss explains the no-service / RUNASADMIN design.
+      # Runs only on Windows, after both halves are built. The .iss explains
+      # the no-service / RUNASADMIN design.
       - name: Build Windows installer (Inno Setup)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -136,6 +152,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           & $iscc `
             "/DAppVersion=${{ steps.ver.outputs.version }}" `
+            "/DVersionInfoVersion=${{ steps.ver.outputs.numeric }}.0" `
             "/DDaemonExe=${{ github.workspace }}\daemon-go\bin\iron-link-daemon.exe" `
             "/DFlutterDir=${{ github.workspace }}\client-flutter\build\windows\x64\runner\Release" `
             "/DOutputDir=${{ github.workspace }}\dist" `
