@@ -99,6 +99,10 @@ final requestCases = <String, Request>{
     'probe': {'interval_sec': 180},
   }),
   'requests/get_settings.json': const GetSettingsRequest(),
+  'requests/check_update.json': const CheckUpdateRequest(),
+  'requests/check_update_force.json': const CheckUpdateRequest(force: true),
+  'requests/download_update.json': const DownloadUpdateRequest(),
+  'requests/apply_update.json': const ApplyUpdateRequest(),
   'requests/set_settings.json': SetSettingsRequest(Settings(
     logLevel: 'warn',
     ipVersion: 'v4',
@@ -343,6 +347,57 @@ final responseCases = <String, void Function(Response)>{
     expect(r.needsReactivation, isTrue);
     expect(r.settings.socksPort, 1080);
   },
+  'responses/update_status_none.json': (r) {
+    final s = (r as UpdateStatusResponse).updateStatus;
+    expect(s.checkedAt, '2026-08-27T12:00:00Z');
+    expect(s.currentVersion, 'v1.2.3');
+    expect(s.available, isFalse);
+    expect(s.stale, isFalse);
+    expect(s.latestVersion, isEmpty);
+    expect(s.artifact, isNull);
+    // Leniency: the whole download half is absent when nothing ran.
+    expect(s.downloadState, isEmpty);
+    expect(s.downloadReceived, 0);
+    expect(s.setupPath, isNull);
+    expect(s.transport, 'tunnel');
+  },
+  'responses/update_status_available.json': (r) {
+    final s = (r as UpdateStatusResponse).updateStatus;
+    expect(s.available, isTrue);
+    expect(s.currentVersion, 'v1.0.0');
+    expect(s.latestVersion, 'v1.2.3');
+    expect(s.notesUrl, 'https://example.com/iron-link/notes/v1.2.3');
+    final a = s.artifact!;
+    expect(a.os, 'windows');
+    expect(a.kind, 'installer');
+    expect(a.name, 'iron-link-1.2.3-windows-amd64-setup.exe');
+    expect(a.size, 12345678);
+    expect(a.sha256, hasLength(64));
+    expect(s.downloadState, isEmpty); // nothing downloaded yet
+  },
+  'responses/update_status_downloading.json': (r) {
+    final s = (r as UpdateStatusResponse).updateStatus;
+    expect(s.downloadState, 'downloading');
+    // The only reply that carries the live byte counters.
+    expect(s.downloadReceived, 4194304);
+    expect(s.downloadTotal, 12345678);
+    expect(s.artifact, isNotNull);
+    expect(s.setupPath, isNull);
+  },
+  'responses/update_status_downloaded.json': (r) {
+    final s = (r as UpdateStatusResponse).updateStatus;
+    expect(s.downloadState, 'downloaded');
+    // The byte counters exist only WHILE downloading — omitted here.
+    expect(s.downloadReceived, 0);
+    expect(s.downloadTotal, 0);
+    expect(s.setupPath, isNull); // only an apply_update reply carries it
+  },
+  'responses/update_status_verified.json': (r) {
+    final s = (r as UpdateStatusResponse).updateStatus;
+    expect(s.downloadState, 'verified');
+    expect(s.setupPath,
+        r'C:\ProgramData\iron-link\updates\iron-link-1.2.3-windows-amd64-setup.exe');
+  },
 };
 
 /// Event fixtures → assertions on the lenient decode.
@@ -392,6 +447,24 @@ final eventCases = <String, void Function(Event)>{
     expect(e.added, 0); // omitted zero counts default
     expect(e.total, 42);
     expect(e.format, isEmpty); // omitted format defaults too
+  },
+  'events/update_available.json': (e) {
+    e as UpdateAvailableEvent;
+    expect(e.version, 'v1.2.3');
+    expect(e.notesUrl, 'https://example.com/iron-link/notes/v1.2.3');
+    expect(e.kind, 'installer');
+  },
+  'events/update_progress.json': (e) {
+    e as UpdateProgressEvent;
+    expect(e.state, 'downloading');
+    expect(e.received, 4194304);
+    expect(e.total, 12345678);
+  },
+  'events/update_progress_done.json': (e) {
+    e as UpdateProgressEvent;
+    expect(e.state, 'downloaded');
+    expect(e.received, e.total);
+    expect(e.total, 12345678);
   },
 };
 

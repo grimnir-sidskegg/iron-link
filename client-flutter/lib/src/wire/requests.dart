@@ -450,3 +450,40 @@ final class UpsertGroupRequest extends Request {
   @override
   Map<String, Object?> toJson() => {'command': 'upsert_group', 'group': group};
 }
+
+/// `check_update` — the daemon's cached update verdict; [force] runs a fresh
+/// synchronous check first ("Check now" — always allowed, but the transport
+/// flags still govern). An old daemon replies `error` ("unimplemented verb"):
+/// no update support.
+final class CheckUpdateRequest extends Request {
+  const CheckUpdateRequest({this.force = false});
+
+  final bool force;
+
+  @override
+  Map<String, Object?> toJson() => {
+        'command': 'check_update',
+        if (force) 'force': true,
+      };
+}
+
+/// `download_update` — start the async installer download (Windows only).
+/// No arguments by design: the daemon downloads THE artifact of its own
+/// verified check; the wire never names files or URLs. Progress arrives as
+/// `update_progress` events.
+final class DownloadUpdateRequest extends Request {
+  const DownloadUpdateRequest();
+
+  @override
+  Map<String, Object?> toJson() => {'command': 'download_update'};
+}
+
+/// `apply_update` — the daemon re-verifies the downloaded installer and the
+/// reply carries `setup_path` for the CLIENT to launch (Windows only; the
+/// daemon never executes the file).
+final class ApplyUpdateRequest extends Request {
+  const ApplyUpdateRequest();
+
+  @override
+  Map<String, Object?> toJson() => {'command': 'apply_update'};
+}

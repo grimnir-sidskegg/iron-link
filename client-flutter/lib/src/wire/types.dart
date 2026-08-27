@@ -613,6 +613,120 @@ class ProbeSettings {
   Map<String, Object?> toJson() => {'url': url, 'budget_secs': budgetSecs};
 }
 
+/// The downloadable file of an available update — the signed-manifest facts
+/// the UI may display (name/size) and the daemon verifies downloads against.
+/// Deliberately no URLs: the daemon downloads from its own verified
+/// manifest, the wire never carries locations.
+class UpdateArtifact {
+  const UpdateArtifact({
+    this.os = '',
+    this.arch = '',
+    this.kind = '',
+    this.name = '',
+    this.size = 0,
+    this.sha256 = '',
+  });
+
+  UpdateArtifact.fromJson(Map<String, Object?> json)
+      : os = _str(json['os']),
+        arch = _str(json['arch']),
+        kind = _str(json['kind']),
+        name = _str(json['name']),
+        size = _int(json['size']),
+        sha256 = _str(json['sha256']);
+
+  final String os;
+  final String arch;
+
+  /// "installer", or "none" for a notify-only channel.
+  final String kind;
+  final String name;
+  final int size;
+  final String sha256;
+}
+
+/// The daemon's update verdict + download state machine (`update_status` —
+/// the reply of `check_update` / `download_update` / `apply_update`).
+class UpdateStatus {
+  const UpdateStatus({
+    this.checkedAt,
+    this.currentVersion = '',
+    this.available = false,
+    this.stale = false,
+    this.latestVersion = '',
+    this.notesUrl = '',
+    this.artifact,
+    this.downloadState = '',
+    this.downloadReceived = 0,
+    this.downloadTotal = 0,
+    this.setupPath,
+    this.transport = '',
+  });
+
+  UpdateStatus.fromJson(Map<String, Object?> json)
+      : checkedAt = _strOpt(json['checked_at']),
+        currentVersion = _str(json['current_version']),
+        available = _bool(json['available']),
+        stale = _bool(json['stale']),
+        latestVersion = _str(json['latest_version']),
+        notesUrl = _str(json['notes_url']),
+        artifact = json['artifact'] is Map<String, Object?>
+            ? UpdateArtifact.fromJson(json['artifact'] as Map<String, Object?>)
+            : null,
+        downloadState = _str(json['download_state']),
+        downloadReceived = _int(json['download_received']),
+        downloadTotal = _int(json['download_total']),
+        setupPath = _strOpt(json['setup_path']),
+        transport = _str(json['transport']);
+
+  /// RFC 3339 timestamp of the last completed check; null before the first.
+  final String? checkedAt;
+  final String currentVersion;
+  final bool available;
+
+  /// The manifest is past its soft freshness horizon — informational only.
+  final bool stale;
+  final String latestVersion;
+  final String notesUrl;
+
+  /// The downloadable file for the daemon's platform; null when nothing is
+  /// available or the channel is notify-only (Linux/macOS).
+  final UpdateArtifact? artifact;
+
+  /// "" (none) / "downloading" / "downloaded" / "verified" / "failed".
+  final String downloadState;
+
+  /// Live byte counters, nonzero only while downloading.
+  final int downloadReceived;
+  final int downloadTotal;
+
+  /// The daemon-owned verified installer path — set only on a successful
+  /// `apply_update` reply; the client launches it.
+  final String? setupPath;
+
+  /// What a check would use right now: "tunnel" / "direct" / "disabled".
+  final String transport;
+
+  /// A copy with the download progress patched in — the `update_progress`
+  /// event stream moves only these three fields.
+  UpdateStatus withProgress(
+          {required String state, required int received, required int total}) =>
+      UpdateStatus(
+        checkedAt: checkedAt,
+        currentVersion: currentVersion,
+        available: available,
+        stale: stale,
+        latestVersion: latestVersion,
+        notesUrl: notesUrl,
+        artifact: artifact,
+        downloadState: state,
+        downloadReceived: received,
+        downloadTotal: total,
+        setupPath: setupPath,
+        transport: transport,
+      );
+}
+
 /// One diagnosis stage's outcome.
 class StageInfo {
   const StageInfo({required this.stage, required this.ok, this.durationMs = 0, this.error});

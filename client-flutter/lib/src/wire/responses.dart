@@ -31,6 +31,7 @@ sealed class Response {
         'app_traffic' => AppTrafficResponse.fromJson(json),
         'doctor_report' => DoctorReportResponse.fromJson(json),
         'settings' => SettingsResponse.fromJson(json),
+        'update_status' => UpdateStatusResponse.fromJson(json),
         _ => UnknownResponse(json),
       };
 }
@@ -320,6 +321,19 @@ final class SettingsResponse extends Response {
 
   final Settings settings;
   final bool needsReactivation;
+}
+
+/// `update_status` — the update check/download state machine (the reply of
+/// `check_update` / `download_update` / `apply_update`).
+final class UpdateStatusResponse extends Response {
+  const UpdateStatusResponse({this.updateStatus = const UpdateStatus()});
+
+  UpdateStatusResponse.fromJson(Map<String, Object?> json)
+      : updateStatus = json['update_status'] is Map<String, Object?>
+            ? UpdateStatus.fromJson(json['update_status'] as Map<String, Object?>)
+            : const UpdateStatus();
+
+  final UpdateStatus updateStatus;
 }
 
 /// A reply with a `status` tag this client does not know — forward

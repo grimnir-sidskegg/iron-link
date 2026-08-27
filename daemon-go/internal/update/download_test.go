@@ -224,3 +224,31 @@ func TestVerifyFileDetectsTampering(t *testing.T) {
 		t.Fatal("want an error for a missing file")
 	}
 }
+
+// TestRemoveStaleTemps sweeps only the leftover temp files: the finished
+// artifact, unrelated files and directories stay.
+func TestRemoveStaleTemps(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{".update-1234", ".update-abcd", "iron-link-setup.exe", "notes.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, ".update-dir"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	n, err := RemoveStaleTemps(dir)
+	if err != nil {
+		t.Fatalf("RemoveStaleTemps: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("removed %d, want 2", n)
+	}
+	got := strings.Join(dirEntries(t, dir), ",")
+	if got != ".update-dir,iron-link-setup.exe,notes.txt" {
+		t.Fatalf("left %q", got)
+	}
+	if _, err := RemoveStaleTemps(filepath.Join(dir, "missing")); err == nil {
+		t.Fatal("want an error for a missing directory")
+	}
+}

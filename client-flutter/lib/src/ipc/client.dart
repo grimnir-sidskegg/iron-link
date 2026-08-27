@@ -343,4 +343,25 @@ class DaemonClient {
   /// re-activation to pick the change up.
   Future<SettingsResponse> setSettings(Settings settings) =>
       _expect<SettingsResponse>(SetSettingsRequest(settings));
+
+  /// `check_update` — the daemon's cached update verdict; [force] runs a
+  /// fresh synchronous check first. An old daemon answers `error`
+  /// ("unimplemented verb"), surfaced as [DaemonError] — callers treat that
+  /// as "no update support".
+  Future<UpdateStatus> checkUpdate({bool force = false}) async =>
+      (await _expect<UpdateStatusResponse>(CheckUpdateRequest(force: force)))
+          .updateStatus;
+
+  /// `download_update` — start the async installer download (Windows only);
+  /// returns immediately with `download_state: downloading`. Progress
+  /// arrives as `update_progress` events.
+  Future<UpdateStatus> downloadUpdate() async =>
+      (await _expect<UpdateStatusResponse>(const DownloadUpdateRequest()))
+          .updateStatus;
+
+  /// `apply_update` — the daemon re-verifies the downloaded installer; the
+  /// reply's `setupPath` is the verified file THIS client launches.
+  Future<UpdateStatus> applyUpdate() async =>
+      (await _expect<UpdateStatusResponse>(const ApplyUpdateRequest()))
+          .updateStatus;
 }

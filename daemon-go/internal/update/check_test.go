@@ -390,7 +390,7 @@ func TestCheckUnsupportedSchemaSoft(t *testing.T) {
 	}
 }
 
-// TestCheckRequestPrivacy pins the D6 wire shape: the one static generic
+// TestCheckRequestPrivacy pins the request shape: the one static generic
 // UA, and no query parameters or other identifying headers.
 func TestCheckRequestPrivacy(t *testing.T) {
 	current, _, keys := genTestKeys(t)

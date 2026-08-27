@@ -88,6 +88,17 @@ const (
 	// to pick the change up.
 	CmdGetSettings = "get_settings"
 	CmdSetSettings = "set_settings"
+
+	// The update verbs. check_update returns the daemon's cached update
+	// verdict (force runs a fresh synchronous check first); download_update
+	// starts the async installer download — the daemon fetches THE artifact
+	// of its own verified check, the wire never names files or URLs;
+	// apply_update re-verifies the downloaded file and hands its path back
+	// for the CLIENT to launch (the daemon never executes it). All three
+	// reply with update_status.
+	CmdCheckUpdate    = "check_update"
+	CmdDownloadUpdate = "download_update"
+	CmdApplyUpdate    = "apply_update"
 )
 
 // Request is the flat union of all control verbs, tagged by Command.
@@ -148,6 +159,12 @@ type Request struct {
 	// probe?}. A missing/empty id creates a new user group; an existing user
 	// group id replaces that group's spec in place. Removal reuses remove_node.
 	Group json.RawMessage `json:"group,omitempty"`
+
+	// check_update: run a fresh synchronous check NOW instead of serving the
+	// cache ("Check now" — always allowed, but the transport flags still
+	// govern; with both off the cached status comes back with
+	// transport "disabled").
+	Force bool `json:"force,omitempty"`
 }
 
 // ---- Response --------------------------------------------------------------
@@ -178,6 +195,7 @@ const (
 	StatusSettings      = "settings"
 	StatusAppTraffic    = "app_traffic"
 	StatusDoctorReport  = "doctor_report"
+	StatusUpdateStatus  = "update_status"
 )
 
 // NodeKindGroup is the NodeInfo.Kind value for a member group (an "Auto" node);
@@ -342,6 +360,52 @@ type RefreshInfo struct {
 	Unrecognized int    `json:"unrecognized,omitempty"`
 }
 
+// UpdateArtifact is the downloadable file of an available update — the
+// signed-manifest facts a client may display (name/size) and the daemon
+// verifies downloads against. Deliberately NO urls: the daemon downloads
+// from its own verified manifest, the wire never carries locations.
+type UpdateArtifact struct {
+	OS     string `json:"os"`
+	Arch   string `json:"arch"`
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
+}
+
+// UpdateStatus is the update_status reply (check_update / download_update /
+// apply_update): the cached check verdict plus the download state machine.
+type UpdateStatus struct {
+	// CheckedAt is when the last successful check completed (RFC 3339);
+	// omitted while no check has completed yet.
+	CheckedAt string `json:"checked_at,omitempty"`
+	// CurrentVersion is the daemon's build version (at least "dev").
+	CurrentVersion string `json:"current_version"`
+	// Available: a newer stable version exists and the manifest is fresh.
+	Available bool `json:"available"`
+	// Stale: the manifest is past its soft freshness horizon —
+	// informational, never banner-worthy.
+	Stale         bool   `json:"stale,omitempty"`
+	LatestVersion string `json:"latest_version,omitempty"`
+	NotesURL      string `json:"notes_url,omitempty"`
+	// Artifact is the downloadable file for THIS daemon's platform; nil for
+	// a notify-only channel (Linux/macOS) or when nothing is available.
+	Artifact *UpdateArtifact `json:"artifact,omitempty"`
+	// DownloadState: "" (none) / "downloading" / "downloaded" / "verified" /
+	// "failed".
+	DownloadState string `json:"download_state,omitempty"`
+	// The live byte counters, present only while downloading.
+	DownloadReceived int64 `json:"download_received,omitempty"`
+	DownloadTotal    int64 `json:"download_total,omitempty"`
+	// SetupPath is the daemon-owned verified installer path, set only on a
+	// successful apply_update reply — the CLIENT launches it (the launch
+	// stays client-side for the unelevated relaunch).
+	SetupPath string `json:"setup_path,omitempty"`
+	// Transport is what a check would use right now: "tunnel" / "direct" /
+	// "disabled" — lets a client explain a skipped forced check.
+	Transport string `json:"transport,omitempty"`
+}
+
 // LatencyResult is one node's probe outcome.
 //
 // Intentional API cleanup vs the Rust `(String, Option<u16>)` tuple: an object
@@ -423,6 +487,9 @@ type Response struct {
 	// set_settings: an engine-relevant field changed while a session runs —
 	// the new value applies at the next activation
 	NeedsReactivation bool `json:"needs_reactivation,omitempty"`
+
+	// update_status (check_update / download_update / apply_update)
+	UpdateStatus *UpdateStatus `json:"update_status,omitempty"`
 }
 
 // ---- Event -----------------------------------------------------------------
@@ -434,6 +501,13 @@ const (
 	EventLog                 = "log"
 	EventSubscriptionUpdated = "subscription_updated"
 	EventCoreError           = "core_error"
+	// EventUpdateAvailable: a check verified a NEWER version (broadcast once
+	// per version). A nudge only — the hub has no replay, so the cached
+	// check_update reply stays the source of truth.
+	EventUpdateAvailable = "update_available"
+	// EventUpdateProgress: the running installer download's byte counters
+	// ("downloading" at most ~1/s, then one final "downloaded" or "failed").
+	EventUpdateProgress = "update_progress"
 )
 
 // Event is the flat union of all server-pushed events on a Subscribe
@@ -472,4 +546,17 @@ type Event struct {
 	Removed int    `json:"removed,omitempty"`
 	Total   int    `json:"total,omitempty"`
 	Format  string `json:"format,omitempty"`
+
+	// update_available: the newer version, its notes page, and the artifact
+	// kind for THIS platform ("installer", or "none" when notify-only).
+	Version  string `json:"version,omitempty"`
+	NotesURL string `json:"notes_url,omitempty"`
+	Kind     string `json:"kind,omitempty"`
+
+	// update_progress. Explicit keys mirroring UpdateStatus — "total" is
+	// taken by the subscription union above. State is "downloading" /
+	// "downloaded" / "failed".
+	DownloadReceived int64  `json:"download_received,omitempty"`
+	DownloadTotal    int64  `json:"download_total,omitempty"`
+	State            string `json:"state,omitempty"`
 }

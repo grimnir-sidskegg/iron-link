@@ -73,7 +73,7 @@ func downloadOne(ctx context.Context, client *http.Client, url string, artifact 
 		return "", true, fmt.Errorf("GET %s: %s", url, resp.Status)
 	}
 
-	tmp, err := os.CreateTemp(destDir, ".update-*")
+	tmp, err := os.CreateTemp(destDir, tempPrefix+"*")
 	if err != nil {
 		return "", false, err
 	}
@@ -114,6 +114,38 @@ func downloadOne(ctx context.Context, client *http.Client, url string, artifact 
 		return "", false, err
 	}
 	return dest, false, nil
+}
+
+// tempPrefix names the same-directory temp file a body lands in before the
+// rename; RemoveStaleTemps sweeps by it.
+const tempPrefix = ".update-"
+
+// RemoveStaleTemps deletes temp files a Download never finalized: a process
+// that exits mid-transfer (service stop, crash) never runs the deferred
+// remove, and nothing else would ever clear them. The caller runs it while
+// no transfer writes to dir. Returns how many were removed; an error is
+// informational, a failed sweep never blocks the next download.
+func RemoveStaleTemps(dir string) (int, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, fmt.Errorf("update: sweep %s: %w", dir, err)
+	}
+	removed := 0
+	var errs []error
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), tempPrefix) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		removed++
+	}
+	if len(errs) > 0 {
+		return removed, fmt.Errorf("update: sweep %s: %w", dir, errors.Join(errs...))
+	}
+	return removed, nil
 }
 
 // VerifyFile re-checks a downloaded artifact on disk against the manifest

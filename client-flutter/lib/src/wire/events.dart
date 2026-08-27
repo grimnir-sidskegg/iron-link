@@ -12,6 +12,8 @@ sealed class Event {
         'log' => LogEvent.fromJson(json),
         'subscription_updated' => SubscriptionUpdatedEvent.fromJson(json),
         'core_error' => CoreErrorEvent.fromJson(json),
+        'update_available' => UpdateAvailableEvent.fromJson(json),
+        'update_progress' => UpdateProgressEvent.fromJson(json),
         _ => UnknownEvent(json),
       };
 }
@@ -107,6 +109,40 @@ final class CoreErrorEvent extends Event {
   final String? role;
   final String stage;
   final String message;
+}
+
+/// `update_available` — a check verified a newer version (broadcast once per
+/// version). A nudge only: the hub has no replay, so the cached
+/// `check_update` reply stays the source of truth — refresh via the verb.
+final class UpdateAvailableEvent extends Event {
+  const UpdateAvailableEvent({this.version = '', this.notesUrl = '', this.kind = ''});
+
+  UpdateAvailableEvent.fromJson(Map<String, Object?> json)
+      : version = _str(json['version']),
+        notesUrl = _str(json['notes_url']),
+        kind = _str(json['kind']);
+
+  final String version;
+  final String notesUrl;
+
+  /// The artifact kind for the daemon's platform: "installer", or "none"
+  /// when the channel is notify-only.
+  final String kind;
+}
+
+/// `update_progress` — the running installer download's byte counters:
+/// "downloading" at most ~1/s, then one final "downloaded" or "failed".
+final class UpdateProgressEvent extends Event {
+  const UpdateProgressEvent({this.received = 0, this.total = 0, this.state = ''});
+
+  UpdateProgressEvent.fromJson(Map<String, Object?> json)
+      : received = _int(json['download_received']),
+        total = _int(json['download_total']),
+        state = _str(json['state']);
+
+  final int received;
+  final int total;
+  final String state;
 }
 
 /// An event with a tag this client does not know — skip, don't fail.

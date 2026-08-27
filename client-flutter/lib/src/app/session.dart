@@ -108,6 +108,13 @@ class DaemonSession extends ChangeNotifier {
   /// the first poll answers, or when the daemon predates the field).
   String? daemonVersion;
 
+  /// The daemon's update verdict, refreshed from `check_update` once the
+  /// daemon is confirmed up and on every `update_available` nudge; the
+  /// `update_progress` events patch its download counters live. Null until
+  /// the first reply — or forever against an old daemon without the verb
+  /// (its "unimplemented verb" error is swallowed as "no update support").
+  UpdateStatus? updateStatus;
+
   bool get isRunning => entries.any((e) => e.isRunning);
 
   /// Rolling traffic history (last [_trafficWindow] seconds) + session totals.
@@ -143,6 +150,9 @@ class DaemonSession extends ChangeNotifier {
       (event) {
         if (!connected) {
           connected = true;
+          // The daemon is confirmed up (this also fires after a reconnect —
+          // e.g. an update restart): read its update verdict, non-fatally.
+          _refreshUpdateStatus();
         }
         _onEvent(event);
         notifyListeners();
@@ -203,8 +213,35 @@ class DaemonSession extends ChangeNotifier {
         _pushFeed('info',
             'subscription ${event.subId}: +${event.added} -${event.removed} '
             '(${event.total} total)');
+      case UpdateAvailableEvent():
+        // The event is only a nudge (the hub has no replay) — the cached
+        // check_update reply is the truth, so re-read it.
+        _refreshUpdateStatus();
+      case UpdateProgressEvent():
+        final st = updateStatus;
+        if (st != null) {
+          updateStatus = st.withProgress(
+              state: event.state,
+              received: event.received,
+              total: event.total);
+        }
       case UnknownEvent():
         break; // forward compatibility: skip, don't fail
+    }
+  }
+
+  /// Reads the daemon's update verdict, non-fatally: an old daemon answers
+  /// the verb with an error ("no update support") and a transient failure
+  /// changes nothing — [updateStatus] just keeps its last value (null on
+  /// first run).
+  Future<void> _refreshUpdateStatus() async {
+    try {
+      final st = await client.checkUpdate();
+      if (_disposed) return;
+      updateStatus = st;
+      notifyListeners();
+    } on ClientException {
+      // No update support (or the daemon went away mid-request).
     }
   }
 

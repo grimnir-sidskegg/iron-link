@@ -71,16 +71,42 @@ type manager struct {
 	// starts — a too-eager cap mislabels working xhttp nodes unreachable).
 	probeTimeout time.Duration
 
-	// updateResult caches the last successful update check (a later
-	// milestone exposes it over the wire); guarded by mu. The check loop
-	// itself never holds mu across network I/O (manager_update.go).
+	// updateResult caches the last successful update check (served over the
+	// wire by check_update); guarded by mu. The check loop itself never
+	// holds mu across network I/O (manager_update.go).
 	updateResult *update.Result
-	// updateURLs / updateTransport / updateNow are TEST overrides (nil = the
-	// production manifest mirrors / the settings-driven transport chooser /
-	// the real clock).
+	// updateLastAttempt is when the last check attempt started (the loop's
+	// daily cadence keys on it, so a forced check also pushes the next
+	// automatic one out); updateAnnounced is the last version broadcast as
+	// update_available (the daily tick must not re-announce it). Under mu.
+	updateLastAttempt time.Time
+	updateAnnounced   string
+	// The installer download state machine (manager_update.go):
+	// updateDownloadState is "" (none) / "downloading" / "downloaded" /
+	// "verified" / "failed"; the received/total counters are live only
+	// while downloading; updateFilePath is the landed artifact and
+	// updateFileArtifact the manifest facts it was downloaded against
+	// (apply verifies against THESE — a later check may cache a different
+	// artifact, and then the staged file is discarded, never re-described);
+	// updateProgressAt rate-limits the update_progress broadcast;
+	// updateDownloadCancel / updateDownloadDone let shutdown abort a
+	// running transfer and wait for its temp-file cleanup. All under mu —
+	// the download I/O itself never holds it.
+	updateDownloadState    string
+	updateDownloadReceived int64
+	updateDownloadTotal    int64
+	updateFilePath         string
+	updateFileArtifact     *update.Artifact
+	updateProgressAt       time.Time
+	updateDownloadCancel   context.CancelFunc
+	updateDownloadDone     chan struct{}
+	// updateURLs / updateTransport / updateNow / updateDir are TEST
+	// overrides (zero = the production manifest mirrors / the settings-driven
+	// transport chooser / the real clock / update.UpdatesDir).
 	updateURLs      []string
 	updateTransport http.RoundTripper
 	updateNow       func() time.Time
+	updateDir       string
 }
 
 func newManager(st *store.Store) *manager {
@@ -190,6 +216,14 @@ func (m *manager) Handle(req api.Request) api.Response {
 		return m.getSettings()
 	case api.CmdSetSettings:
 		return m.setSettings(req)
+
+	// The update verbs (manager_update.go).
+	case api.CmdCheckUpdate:
+		return m.checkUpdate(req)
+	case api.CmdDownloadUpdate:
+		return m.downloadUpdate()
+	case api.CmdApplyUpdate:
+		return m.applyUpdate()
 
 	default:
 		return errResp("unimplemented verb: " + req.Command)
@@ -531,14 +565,21 @@ func (m *manager) stop(req api.Request) api.Response {
 
 // shutdown closes a running session WITHOUT clearing the last-session record:
 // a daemon restart restores it (the Rust restore semantics). Called on
-// process exit only.
+// process exit only. A running installer download is aborted and waited
+// for: its temp file is removed by the transfer's own deferred cleanup,
+// which only runs if the process does not exit first.
 func (m *manager) shutdown() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.sess != nil {
 		m.stopTrafficLocked()
 		m.sess.Close()
 		m.sess = nil
+	}
+	cancel, done := m.updateDownloadCancel, m.updateDownloadDone
+	m.mu.Unlock()
+	if cancel != nil {
+		cancel()
+		<-done
 	}
 }
 

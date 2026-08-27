@@ -157,6 +157,10 @@ var sharedRequests = map[string]Request{
 	"network_report":            {Command: CmdNetworkReport},
 	"forwarding_check":          {Command: CmdForwardingCheck},
 	"get_settings":              {Command: CmdGetSettings},
+	"check_update":              {Command: CmdCheckUpdate},
+	"check_update_force":        {Command: CmdCheckUpdate, Force: true},
+	"download_update":           {Command: CmdDownloadUpdate},
+	"apply_update":              {Command: CmdApplyUpdate},
 	"set_settings": {Command: CmdSetSettings, Settings: &Settings{
 		LogLevel:  "warn",
 		IPVersion: "v4",
@@ -383,6 +387,37 @@ var sharedResponses = map[string]Response{
 			},
 		},
 	}},
+	// The update_status ladder: nothing available -> available (artifact
+	// attached, no download yet) -> downloading (the only reply that carries
+	// the byte counters) -> downloaded (the counters are pinned OMITTED
+	// again) -> verified (the only reply that carries setup_path).
+	"update_status_none": {Status: StatusUpdateStatus, UpdateStatus: &UpdateStatus{
+		CheckedAt: "2026-08-27T12:00:00Z", CurrentVersion: "v1.2.3", Transport: "tunnel",
+	}},
+	"update_status_available": {Status: StatusUpdateStatus, UpdateStatus: &UpdateStatus{
+		CheckedAt: "2026-08-27T12:00:00Z", CurrentVersion: "v1.0.0", Available: true,
+		LatestVersion: "v1.2.3", NotesURL: "https://example.com/iron-link/notes/v1.2.3",
+		Artifact: updateArtifactDoc(), Transport: "tunnel",
+	}},
+	"update_status_downloading": {Status: StatusUpdateStatus, UpdateStatus: &UpdateStatus{
+		CheckedAt: "2026-08-27T12:00:00Z", CurrentVersion: "v1.0.0", Available: true,
+		LatestVersion: "v1.2.3", NotesURL: "https://example.com/iron-link/notes/v1.2.3",
+		Artifact: updateArtifactDoc(), DownloadState: "downloading",
+		DownloadReceived: 4194304, DownloadTotal: 12345678, Transport: "tunnel",
+	}},
+	"update_status_downloaded": {Status: StatusUpdateStatus, UpdateStatus: &UpdateStatus{
+		CheckedAt: "2026-08-27T12:00:00Z", CurrentVersion: "v1.0.0", Available: true,
+		LatestVersion: "v1.2.3", NotesURL: "https://example.com/iron-link/notes/v1.2.3",
+		Artifact: updateArtifactDoc(), DownloadState: "downloaded", Transport: "tunnel",
+	}},
+	"update_status_verified": {Status: StatusUpdateStatus, UpdateStatus: &UpdateStatus{
+		CheckedAt: "2026-08-27T12:00:00Z", CurrentVersion: "v1.0.0", Available: true,
+		LatestVersion: "v1.2.3", NotesURL: "https://example.com/iron-link/notes/v1.2.3",
+		Artifact: updateArtifactDoc(), DownloadState: "verified",
+		SetupPath: `C:\ProgramData\iron-link\updates\iron-link-1.2.3-windows-amd64-setup.exe`,
+		Transport: "tunnel",
+	}},
+
 	"settings": {Status: StatusSettings, Settings: defaultSettingsDoc()},
 	"settings_needs_reactivation": {Status: StatusSettings, Settings: func() *Settings {
 		s := defaultSettingsDoc()
@@ -391,10 +426,24 @@ var sharedResponses = map[string]Response{
 	}(), NeedsReactivation: true},
 }
 
+// updateArtifactDoc mirrors internal/update's fixture manifest artifact —
+// the shape the daemon copies out of a verified check result.
+func updateArtifactDoc() *UpdateArtifact {
+	return &UpdateArtifact{
+		OS: "windows", Arch: "amd64", Kind: "installer",
+		Name: "iron-link-1.2.3-windows-amd64-setup.exe", Size: 12345678,
+		SHA256: "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+	}
+}
+
 var sharedEvents = map[string]Event{
 	"subscription_updated":      {Event: EventSubscriptionUpdated, SubID: "s1", Added: 3, Removed: 1, Total: 42, Format: "xray"},
 	"subscription_updated_zero": {Event: EventSubscriptionUpdated, SubID: "s1", Total: 42},
 	"core_error":                {Event: EventCoreError, Role: ptr(RoleProxy), Stage: "start", Message: "xray: invalid config"},
+
+	"update_available":     {Event: EventUpdateAvailable, Version: "v1.2.3", NotesURL: "https://example.com/iron-link/notes/v1.2.3", Kind: "installer"},
+	"update_progress":      {Event: EventUpdateProgress, DownloadReceived: 4194304, DownloadTotal: 12345678, State: "downloading"},
+	"update_progress_done": {Event: EventUpdateProgress, DownloadReceived: 12345678, DownloadTotal: 12345678, State: "downloaded"},
 
 	"state_idle": {Event: EventState},
 	"state_running": {
