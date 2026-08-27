@@ -425,6 +425,9 @@ class Settings {
     this.socksPort = 10808,
     TunSettings? tun,
     ProbeSettings? latencyProbe,
+    this.autoUpdate = true,
+    this.updateViaTunnel = true,
+    this.updateViaDirect = true,
   })  : dns = dns ?? DnsSettings(),
         lanBypass = lanBypass ?? LanBypassSettings(),
         tun = tun ?? TunSettings(),
@@ -449,6 +452,9 @@ class Settings {
         latencyProbe: json['latency_probe'] is Map<String, Object?>
             ? ProbeSettings.fromJson(json['latency_probe'] as Map<String, Object?>)
             : null,
+        autoUpdate: _bool(json['auto_update'], true),
+        updateViaTunnel: _bool(json['update_via_tunnel'], true),
+        updateViaDirect: _bool(json['update_via_direct'], true),
       );
 
   /// "error" / "warn" / "info" / "debug".
@@ -464,6 +470,17 @@ class Settings {
   TunSettings tun;
   ProbeSettings latencyProbe;
 
+  /// Master switch of the periodic update check (fail-soft; the daemon
+  /// never installs anything by itself).
+  bool autoUpdate;
+
+  /// Reach the update manifest through the active session (tunnel-first).
+  bool updateViaTunnel;
+
+  /// Allow a TUN-exempt direct dial when no session is up (or via-tunnel
+  /// is off). Both via-flags off disables the check's transport entirely.
+  bool updateViaDirect;
+
   Map<String, Object?> toJson() => {
         'log_level': logLevel,
         'ip_version': ipVersion,
@@ -474,6 +491,9 @@ class Settings {
         'socks_port': socksPort,
         'tun': tun.toJson(),
         'latency_probe': latencyProbe.toJson(),
+        'auto_update': autoUpdate,
+        'update_via_tunnel': updateViaTunnel,
+        'update_via_direct': updateViaDirect,
       };
 }
 

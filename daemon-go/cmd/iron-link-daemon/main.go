@@ -109,6 +109,9 @@ func run(ctx context.Context, logw io.Writer) error {
 	// Restore the previous session (best-effort, async — activation can take
 	// seconds and must not block the control plane).
 	go m.restoreLastSession()
+	// The background update check (jittered daily, fail-soft, gated by the
+	// auto_update / transport settings at every tick).
+	go m.updateLoop(ctx)
 
 	select {
 	case <-ctx.Done():

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,6 +16,7 @@ import (
 	"ironlink/daemon/internal/proxy"
 	"ironlink/daemon/internal/routing"
 	"ironlink/daemon/internal/store"
+	"ironlink/daemon/internal/update"
 )
 
 // The SOCKS port and probe budget live in the settings document
@@ -68,6 +70,17 @@ type manager struct {
 	// (0 = settings; the default budget is sized for slow xhttp/xmux cold
 	// starts — a too-eager cap mislabels working xhttp nodes unreachable).
 	probeTimeout time.Duration
+
+	// updateResult caches the last successful update check (a later
+	// milestone exposes it over the wire); guarded by mu. The check loop
+	// itself never holds mu across network I/O (manager_update.go).
+	updateResult *update.Result
+	// updateURLs / updateTransport / updateNow are TEST overrides (nil = the
+	// production manifest mirrors / the settings-driven transport chooser /
+	// the real clock).
+	updateURLs      []string
+	updateTransport http.RoundTripper
+	updateNow       func() time.Time
 }
 
 func newManager(st *store.Store) *manager {

@@ -114,6 +114,9 @@ final requestCases = <String, Request>{
     tun: TunSettings(mtu: 9000, stack: 'system', strictRoute: false),
     latencyProbe: ProbeSettings(
         url: 'https://cp.cloudflare.com/generate_204', budgetSecs: 20),
+    autoUpdate: true,
+    updateViaTunnel: false,
+    updateViaDirect: true,
   )),
 };
 
@@ -326,6 +329,10 @@ final responseCases = <String, void Function(Response)>{
     expect(s.socksPort, 10808);
     expect(s.tun.strictRoute, isTrue);
     expect(s.latencyProbe.budgetSecs, 45);
+    // The update check defaults ON, tunnel-first with a direct fallback.
+    expect(s.autoUpdate, isTrue);
+    expect(s.updateViaTunnel, isTrue);
+    expect(s.updateViaDirect, isTrue);
     // The document must survive an edit-and-resend round trip.
     expect(const DeepCollectionEquality().equals(
             Settings.fromJson(s.toJson()).toJson(), s.toJson()),

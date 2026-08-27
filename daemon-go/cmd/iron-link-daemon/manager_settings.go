@@ -42,12 +42,16 @@ func (m *manager) setSettings(req api.Request) api.Response {
 }
 
 // engineRelevantChanged reports whether a field that is compiled into the
-// running session differs. RestoreOnStart, the subscription UA, and the
-// probe settings apply live — they are neutralized before comparing.
+// running session differs. RestoreOnStart, the subscription UA, the probe
+// settings, and the update-check flags apply live — they are neutralized
+// before comparing.
 func engineRelevantChanged(a, b api.Settings) bool {
 	a.RestoreOnStart, b.RestoreOnStart = false, false
 	a.SubscriptionUserAgent, b.SubscriptionUserAgent = "", ""
 	a.LatencyProbe, b.LatencyProbe = api.ProbeSettings{}, api.ProbeSettings{}
+	a.AutoUpdate, b.AutoUpdate = false, false
+	a.UpdateViaTunnel, b.UpdateViaTunnel = false, false
+	a.UpdateViaDirect, b.UpdateViaDirect = false, false
 	return !reflect.DeepEqual(a, b)
 }
 

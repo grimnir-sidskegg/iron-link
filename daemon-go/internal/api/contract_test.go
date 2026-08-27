@@ -171,6 +171,9 @@ var sharedRequests = map[string]Request{
 		SocksPort:             1080,
 		Tun:                   TunSettings{MTU: 9000, Stack: "system", StrictRoute: false},
 		LatencyProbe:          ProbeSettings{URL: "https://cp.cloudflare.com/generate_204", BudgetSecs: 20},
+		AutoUpdate:            true,
+		UpdateViaTunnel:       false,
+		UpdateViaDirect:       true,
 	}},
 }
 
@@ -192,6 +195,9 @@ func defaultSettingsDoc() *Settings {
 		SocksPort:             10808,
 		Tun:                   TunSettings{MTU: 1500, Stack: "mixed", StrictRoute: true},
 		LatencyProbe:          ProbeSettings{URL: "https://www.gstatic.com/generate_204", BudgetSecs: 45},
+		AutoUpdate:            true,
+		UpdateViaTunnel:       true,
+		UpdateViaDirect:       true,
 	}
 }
 

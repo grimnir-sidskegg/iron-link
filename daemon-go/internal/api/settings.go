@@ -1,5 +1,7 @@
 package api
 
+import "encoding/json"
+
 // Settings is the daemon-global settings document: the wire payload of
 // `get_settings`/`set_settings` AND the on-disk shape of `settings.json`
 // (the daemon is the only writer; clients never touch the file). The
@@ -8,9 +10,9 @@ package api
 //
 // Validation lives in the store package (the api package stays a dumb,
 // stdlib-only mirror). Engine-relevant fields (everything except
-// RestoreOnStart / SubscriptionUserAgent / LatencyProbe) take effect at
-// the NEXT activation — `set_settings` replies with `needs_reactivation`
-// when a session is running and one of them changed.
+// RestoreOnStart / SubscriptionUserAgent / LatencyProbe / the update-check
+// flags) take effect at the NEXT activation — `set_settings` replies with
+// `needs_reactivation` when a session is running and one of them changed.
 type Settings struct {
 	// LogLevel: "error" / "warn" / "info" / "debug" — both cores' log
 	// config and the GUI log feed.
@@ -30,6 +32,29 @@ type Settings struct {
 	SocksPort    int           `json:"socks_port"`
 	Tun          TunSettings   `json:"tun"`
 	LatencyProbe ProbeSettings `json:"latency_probe"`
+	// AutoUpdate: the periodic signed-manifest update check (the master
+	// switch). Checking is fail-soft and never installs anything by itself.
+	AutoUpdate bool `json:"auto_update"`
+	// UpdateViaTunnel: reach the update manifest through the active
+	// session's outbound (tunnel-first — the direct path may be blocked).
+	UpdateViaTunnel bool `json:"update_via_tunnel"`
+	// UpdateViaDirect: allow a TUN-exempt direct dial when no session is up
+	// or UpdateViaTunnel is off. Both via-flags off disables the check's
+	// transport entirely.
+	UpdateViaDirect bool `json:"update_via_direct"`
+}
+
+// UnmarshalJSON decodes over the receiver with the update-check flags
+// preset to their default ON, so a document that predates those keys — an
+// older settings.json, or a set_settings from a client that has not been
+// upgraded yet — keeps the defaults instead of silently persisting false.
+// A key that is present still overrides the preset as usual.
+func (s *Settings) UnmarshalJSON(data []byte) error {
+	s.AutoUpdate = true
+	s.UpdateViaTunnel = true
+	s.UpdateViaDirect = true
+	type plain Settings // method-free alias: plain decode, not this one again
+	return json.Unmarshal(data, (*plain)(s))
 }
 
 // DNSSettings configures the sing-box resolver app traffic uses.

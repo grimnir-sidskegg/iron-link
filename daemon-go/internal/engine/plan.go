@@ -24,6 +24,8 @@ import (
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/protocol/group"
+	M "github.com/sagernet/sing/common/metadata"
+	N "github.com/sagernet/sing/common/network"
 
 	"ironlink/daemon/internal/proxy"
 	"ironlink/daemon/internal/routing"
@@ -509,10 +511,11 @@ func (p *SessionPlan) xrayConfig(stubListen string) ([]byte, error) {
 // fails (and the caller re-activates instead) when the session was built
 // single-node (no selector) or tag is not an embedded member.
 func (s *Session) SelectOutbound(tag string) error {
-	if s.box == nil {
+	b := s.box.Load()
+	if b == nil {
 		return errors.New("session is not running")
 	}
-	ob, ok := s.box.Outbound().Outbound(SelectorTag)
+	ob, ok := b.Outbound().Outbound(SelectorTag)
 	if !ok {
 		return fmt.Errorf("no %q outbound in the running session", SelectorTag)
 	}
@@ -529,10 +532,11 @@ func (s *Session) SelectOutbound(tag string) error {
 // SelectedOutbound reports the selector's current member ("", false when the
 // session has no selector). This is the in-process `active_node_live`.
 func (s *Session) SelectedOutbound() (string, bool) {
-	if s.box == nil {
+	b := s.box.Load()
+	if b == nil {
 		return "", false
 	}
-	ob, ok := s.box.Outbound().Outbound(SelectorTag)
+	ob, ok := b.Outbound().Outbound(SelectorTag)
 	if !ok {
 		return "", false
 	}
@@ -559,12 +563,36 @@ func (s *Session) LiveOutbound() (string, bool) {
 	if !ok {
 		return "", false
 	}
-	if ob, found := s.box.Outbound().Outbound(selected); found {
-		if g, isGroup := ob.(adapter.OutboundGroup); isGroup {
-			if now := g.Now(); now != "" {
-				return now, true
+	if b := s.box.Load(); b != nil {
+		if ob, found := b.Outbound().Outbound(selected); found {
+			if g, isGroup := ob.(adapter.OutboundGroup); isGroup {
+				if now := g.Now(); now != "" {
+					return now, true
+				}
 			}
 		}
 	}
 	return selected, true
+}
+
+// ProxyDialContext dials addr through the running session's selector
+// outbound — the same in-process path routed app traffic takes, so it works
+// in BOTH TUN and SOCKS modes (a TUN session has no local SOCKS inbound to
+// dial). Shaped like net.Dialer.DialContext so an http.Transport can use it
+// directly; the network parameter is accepted for that signature but the
+// dial is always TCP (mirrors probeThroughSingBox). This is the one Session
+// method called outside the manager's mu, so the box pointer is loaded
+// atomically: a dial racing Close either errors here (pointer already
+// swapped out) or fails inside the closing box — either way the fail-soft
+// update check treats it like any unreachable endpoint.
+func (s *Session) ProxyDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	b := s.box.Load()
+	if b == nil {
+		return nil, errors.New("session is not running")
+	}
+	ob, ok := b.Outbound().Outbound(SelectorTag)
+	if !ok {
+		return nil, fmt.Errorf("no %q outbound in the running session", SelectorTag)
+	}
+	return ob.DialContext(ctx, N.NetworkTCP, M.ParseSocksaddr(addr))
 }

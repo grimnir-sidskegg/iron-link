@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 
 	"ironlink/daemon/internal/api"
@@ -48,6 +49,56 @@ func TestSetSettingsPersistsAndReadsBack(t *testing.T) {
 	}
 }
 
+// TestSetSettingsWithoutUpdateKeysKeepsDefaults: a set_settings from a
+// client that predates the update-check flags carries a settings document
+// WITHOUT those keys. The wire decode lands on a zero Request (not on the
+// stored file), so without the UnmarshalJSON preset one such save would
+// silently persist all three flags as false. Absent keys must keep the
+// default ON; an explicitly false key must still stick.
+func TestSetSettingsWithoutUpdateKeysKeepsDefaults(t *testing.T) {
+	m := settingsManager(t)
+	data, err := json.Marshal(store.DefaultSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	delete(raw, "auto_update")
+	delete(raw, "update_via_tunnel")
+	delete(raw, "update_via_direct")
+	send := func(doc map[string]json.RawMessage) api.Settings {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{"command": api.CmdSetSettings, "settings": doc})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var req api.Request
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatal(err)
+		}
+		if resp := m.Handle(req); resp.Status != api.StatusSettings {
+			t.Fatalf("set_settings: %s (%s)", resp.Status, resp.Message)
+		}
+		got, err := m.store.LoadSettings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	got := send(raw)
+	if !got.AutoUpdate || !got.UpdateViaTunnel || !got.UpdateViaDirect {
+		t.Fatalf("absent update keys must keep the default ON, got %+v", got)
+	}
+
+	raw["auto_update"] = json.RawMessage("false")
+	if got := send(raw); got.AutoUpdate || !got.UpdateViaTunnel || !got.UpdateViaDirect {
+		t.Fatalf("an explicit false must override the preset, got %+v", got)
+	}
+}
+
 func TestSetSettingsRejectsInvalidDocument(t *testing.T) {
 	m := settingsManager(t)
 	doc := store.DefaultSettings()
@@ -68,6 +119,9 @@ func TestEngineRelevantChanged(t *testing.T) {
 	live.RestoreOnStart = false
 	live.SubscriptionUserAgent = "other/1.0"
 	live.LatencyProbe.BudgetSecs = 10
+	live.AutoUpdate = false
+	live.UpdateViaTunnel = false
+	live.UpdateViaDirect = false
 	if engineRelevantChanged(base, live) {
 		t.Fatal("live-applied fields must not flag reactivation")
 	}

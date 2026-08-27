@@ -56,6 +56,13 @@ func DefaultSettings() api.Settings {
 			URL:        "https://www.gstatic.com/generate_204",
 			BudgetSecs: 45,
 		},
+		// The update check defaults ON, tunnel-first with a direct fallback.
+		// A document that omits the keys — an older settings.json OR an older
+		// client's set_settings — keeps these defaults; the preset lives in
+		// api.Settings.UnmarshalJSON so both decode paths are covered.
+		AutoUpdate:      true,
+		UpdateViaTunnel: true,
+		UpdateViaDirect: true,
 	}
 }
 

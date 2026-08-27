@@ -57,6 +57,12 @@ func probeDialer(timeout time.Duration) *net.Dialer {
 	return &net.Dialer{Timeout: timeout, Control: markControl, Resolver: tunExemptResolver}
 }
 
+// TunExemptDialer is probeDialer exposed to the daemon layer: connections
+// AND the DNS lookups resolving them escape an active TUN (fwmark on Linux,
+// interface-bind elsewhere) and are plain direct dials when no TUN session
+// is up. The update check's direct transport dials through it.
+func TunExemptDialer(timeout time.Duration) *net.Dialer { return probeDialer(timeout) }
+
 // tunExemptResolver is a Go resolver whose UDP/TCP dials to the system's
 // configured DNS servers carry the TUN-exemption control (fwmark on Linux,
 // interface-bind off Linux). It replaces net.DefaultResolver for the doctor's

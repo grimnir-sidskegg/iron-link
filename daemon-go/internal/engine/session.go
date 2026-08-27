@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	box "github.com/sagernet/sing-box"
 )
@@ -11,7 +12,10 @@ import (
 // backends its member outbounds dispatch to (xray today; the seam is
 // engine-agnostic). It owns the box's and every backend's lifetime.
 type Session struct {
-	box      *box.Box
+	// box is atomic because ProxyDialContext runs OUTSIDE the manager's mu
+	// (the update check must not hold it across a fetch) while Close, always
+	// called under mu, swaps the pointer out. Every accessor loads it once.
+	box      atomic.Pointer[box.Box]
 	backends []Backend
 	traffic  TrafficCounter
 }
@@ -58,7 +62,7 @@ func StartWithOptions(singBoxCfg, xrayCfg []byte, opts StartOptions) (*Session, 
 		_ = closeBackends(backends)
 		return nil, fmt.Errorf("start sing-box (open TUN — needs root?): %w", err)
 	}
-	s.box = b
+	s.box.Store(b)
 	// Under a TUN session sing-box runs a default-interface monitor; reuse its
 	// AutoDetectInterfaceFunc so the daemon's OWN probe dials (doctor, latency)
 	// can be pinned to the physical interface and escape the active TUN off
@@ -93,11 +97,10 @@ func (s *Session) Close() error {
 	// below). Safe under the manager's at-most-one-session invariant.
 	ClearTunBypass()
 	var errs []error
-	if s.box != nil {
-		if err := s.box.Close(); err != nil {
+	if b := s.box.Swap(nil); b != nil {
+		if err := b.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close sing-box: %w", err))
 		}
-		s.box = nil
 	}
 	for _, be := range s.backends {
 		if err := be.Close(); err != nil {
