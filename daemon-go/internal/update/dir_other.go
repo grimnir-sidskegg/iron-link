@@ -2,24 +2,18 @@
 
 package update
 
-import (
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-)
+import "errors"
 
-// UpdatesDir resolves (and creates on first use) the artifact download
-// directory: <configRoot>/updates, private to the daemon (0700). Linux and
-// macOS are notify-only channels (kind=none), so in practice nothing lands
-// here — the helper exists so call sites stay platform-agnostic.
-func UpdatesDir(configRoot string) (string, error) {
-	if configRoot == "" {
-		return "", errors.New("update: empty config root")
-	}
-	dir := filepath.Join(configRoot, "updates")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("update: create %s: %w", dir, err)
-	}
-	return dir, nil
+// UpdatesDir exists for signature parity with the Windows implementation,
+// which resolves the protected download directory for installer artifacts.
+// Linux and macOS are notify-only channels (kind=none): nothing is ever
+// downloaded, so there is no staging directory to hand out. Refusing beats
+// defaulting to the config root: the daemon runs as root while the config
+// root belongs to the invoking user, and staging root-downloaded files in a
+// user-writable tree would reopen the download/launch TOCTOU the Windows
+// protected DACL exists to close. A future downloadable kind here needs a
+// root-owned system path (e.g. /var/cache/iron-link) with the same
+// pre-existing-directory ownership checks as the Windows side.
+func UpdatesDir(string) (string, error) {
+	return "", errors.New("update: no downloadable update channel on this platform")
 }

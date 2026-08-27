@@ -73,14 +73,29 @@ func createProtectedDir(path string) error {
 	if !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
 		return fmt.Errorf("update: create %s: %w", path, err)
 	}
-	if err := checkExistingDir(path, name); err != nil {
+	// Open ONE handle and run every check plus the DACL stamp through it.
+	// Name-based check-then-set would race: the directory could be swapped
+	// for a junction between the check and the stamp, and a path-based
+	// SetNamedSecurityInfo follows the junction — SYSTEM would then rewrite
+	// the DACL of an attacker-chosen tree. FILE_FLAG_OPEN_REPARSE_POINT
+	// pins the object itself, never a reparse target.
+	h, err := windows.CreateFile(name,
+		windows.READ_CONTROL|windows.WRITE_DAC,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
+	if err != nil {
+		return fmt.Errorf("update: open %s: %w", path, err)
+	}
+	defer windows.CloseHandle(h)
+	if err := checkExistingDir(h, path); err != nil {
 		return err
 	}
 	dacl, _, err := sd.DACL()
 	if err != nil {
 		return fmt.Errorf("update: read updates dir DACL: %w", err)
 	}
-	err = windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+	err = windows.SetSecurityInfo(h, windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
 		nil, nil, dacl, nil)
 	if err != nil {
@@ -89,18 +104,18 @@ func createProtectedDir(path string) error {
 	return nil
 }
 
-func checkExistingDir(path string, name *uint16) error {
-	attrs, err := windows.GetFileAttributes(name)
-	if err != nil {
+func checkExistingDir(h windows.Handle, path string) error {
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(h, &info); err != nil {
 		return fmt.Errorf("update: stat %s: %w", path, err)
 	}
-	if attrs&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
 		return fmt.Errorf("update: %s exists and is not a directory", path)
 	}
-	if attrs&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 		return fmt.Errorf("update: %s is a reparse point; refusing to use it", path)
 	}
-	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	sd, err := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
 	if err != nil {
 		return fmt.Errorf("update: read owner of %s: %w", path, err)
 	}

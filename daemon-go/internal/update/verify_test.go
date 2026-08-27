@@ -194,13 +194,28 @@ func TestCompiledInKeysParse(t *testing.T) {
 }
 
 // TestFixtureVerifiesWithCompiledKeys pins the whole chain end to end: the
-// static fixture signature was made by the dev current key whose public
-// half is compiled into keys.go.
+// static fixture signature was made by the current key whose public half is
+// compiled into keys.go. Replacing the dev placeholder keys with production
+// keys unbinds the fixture, so the test skips (with the re-sign command in
+// keys.go) rather than fail the suite at key-replacement time; a tampered
+// fixture under a matching key still fails hard.
 func TestFixtureVerifiesWithCompiledKeys(t *testing.T) {
 	manifest := fixtureManifest(t)
 	sig, err := os.ReadFile("testdata/update.json.minisig")
 	if err != nil {
 		t.Fatalf("read fixture signature: %v", err)
+	}
+	var parsed minisign.Signature
+	if err := parsed.UnmarshalText(sig); err != nil {
+		t.Fatalf("parse fixture signature: %v", err)
+	}
+	keys, err := trustedKeys()
+	if err != nil {
+		t.Fatalf("trustedKeys: %v", err)
+	}
+	if keys[0].pub.ID() != parsed.KeyID {
+		t.Skipf("fixture signed by key %X, compiled-in current key is %X — re-sign testdata/update.json with the current secret key (command in keys.go) to re-pin this test",
+			parsed.KeyID, keys[0].pub.ID())
 	}
 	v, err := VerifyManifest(manifest, sig)
 	if err != nil {

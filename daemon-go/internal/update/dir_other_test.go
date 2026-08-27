@@ -2,33 +2,16 @@
 
 package update
 
-import (
-	"os"
-	"path/filepath"
-	"testing"
-)
+import "testing"
 
-func TestUpdatesDir(t *testing.T) {
-	root := t.TempDir()
-	dir, err := UpdatesDir(root)
-	if err != nil {
-		t.Fatalf("UpdatesDir: %v", err)
+// Non-Windows platforms are notify-only: UpdatesDir must refuse rather than
+// resolve a staging directory (in particular, never one under the
+// user-writable config root — the daemon runs as root).
+func TestUpdatesDirRefuses(t *testing.T) {
+	if dir, err := UpdatesDir(t.TempDir()); err == nil {
+		t.Fatalf("UpdatesDir = %q, want an error on a notify-only platform", dir)
 	}
-	if dir != filepath.Join(root, "updates") {
-		t.Fatalf("dir = %q, want <root>/updates", dir)
-	}
-	info, err := os.Stat(dir)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if !info.IsDir() || info.Mode().Perm() != 0o700 {
-		t.Fatalf("mode = %v, want a 0700 directory", info.Mode())
-	}
-	// Idempotent on a second call.
-	if again, err := UpdatesDir(root); err != nil || again != dir {
-		t.Fatalf("second call: %q, %v", again, err)
-	}
-	if _, err := UpdatesDir(""); err == nil {
-		t.Fatal("empty config root must be rejected")
+	if dir, err := UpdatesDir(""); err == nil {
+		t.Fatalf("UpdatesDir(\"\") = %q, want an error", dir)
 	}
 }

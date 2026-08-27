@@ -63,6 +63,22 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "numeric=$numeric" >> "$GITHUB_OUTPUT"
 
+      # Release gate: a v-tag build compiles the update trust root out of
+      # keys.go, and the dev placeholder keys (their secret halves are not
+      # held offline) must never ship in a release. sign-update.sh cannot
+      # catch this — it verifies against whatever keys are compiled in — so
+      # the tag build refuses while the placeholder marker is present.
+      - name: Refuse dev update keys (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          if grep -q "DEV PLACEHOLDERS" daemon-go/internal/update/keys.go; then
+            echo "keys.go still carries the DEV PLACEHOLDER update keys." >&2
+            echo "Replace them with the production public keys and re-sign" >&2
+            echo "daemon-go/internal/update/testdata (command in keys.go) before tagging." >&2
+            exit 1
+          fi
+
       - name: Install Go toolchain
         uses: actions/setup-go@v5
         with:
@@ -111,6 +127,10 @@ jobs:
       # only way to get a Windows GUI binary without a Windows dev box.
       # Uploaded as its own artifact; bundle/installer integration is the
       # M0 packaging task.
+      # --build-number fills the fourth VERSIONINFO numeric of the exe
+      # (passing --build-name alone zeroes it); the workflow run number keeps
+      # it monotonic so every CI build stays distinguishable. Version identity
+      # itself travels in the dart-define.
       - name: Build Flutter app (Windows)
         if: runner.os == 'Windows'
         shell: bash
@@ -118,6 +138,7 @@ jobs:
         run: >
           flutter build windows --release
           --build-name=${{ steps.ver.outputs.numeric }}
+          --build-number=${{ github.run_number }}
           --dart-define=IRON_LINK_VERSION=v${{ steps.ver.outputs.version }}
 
       - name: Upload Flutter app (Windows)
