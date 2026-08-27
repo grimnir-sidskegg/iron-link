@@ -266,6 +266,31 @@ class NodeDetailsDialog extends StatelessWidget {
   }
 }
 
+/// The one-click update consent (Windows): what the installer run costs the
+/// user — the client is killed and relaunched, the tunnel drops meanwhile,
+/// and UAC asks once. Resolves true on Install.
+Future<bool> confirmInstallUpdate(BuildContext context, String version) async {
+  final answer = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('Install $version'),
+      content: const Text(
+          'iron-link will close, the connection drops for ~30 s while the '
+          'installer runs, then the app restarts. Windows will ask for '
+          'administrator permission once.'),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel')),
+        FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Install')),
+      ],
+    ),
+  );
+  return answer ?? false;
+}
+
 /// Prompts for a new profile name; resolves to the trimmed name or null.
 Future<String?> promptProfileName(BuildContext context) {
   final controller = TextEditingController();

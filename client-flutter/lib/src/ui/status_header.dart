@@ -8,6 +8,7 @@ import 'app.dart';
 import 'iron_scope.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_typography.dart';
+import 'update_banner.dart';
 import 'widgets/iron_widgets.dart';
 import 'widgets/motion.dart';
 
@@ -92,11 +93,26 @@ class _StatusHeaderState extends State<StatusHeader> {
         final s = widget.session;
         final running = s.isRunning;
         final disabled = _busy || (!running && !s.connected);
+        // The offered update, unless dismissed for this version; only while
+        // the daemon is reachable (its buttons are daemon calls, and the
+        // daemon-down banner already owns that slot).
+        final offered = s.offeredUpdate;
+        final showUpdate = s.connected &&
+            offered != null &&
+            s.dismissedUpdateVersion != offered.latestVersion;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (!s.connected)
-              _DaemonDownBanner(endpoint: widget.client.endpoint),
+            // While the launched installer restarts the daemon, its brief
+            // absence is expected — the "Updating…" card stands in for the
+            // daemon-down banner rather than flashing it red.
+            if (s.updating)
+              const UpdatingBanner()
+            else ...[
+              if (!s.connected)
+                _DaemonDownBanner(endpoint: widget.client.endpoint),
+              if (showUpdate) UpdateBanner(session: s, status: offered),
+            ],
             // 1) The power orb + status word.
             Center(
               child: _PowerOrb(

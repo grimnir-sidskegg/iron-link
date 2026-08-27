@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../app/formats.dart';
 import '../app/session.dart';
 import '../app/theme_controller.dart';
+import '../app/version.dart';
 import '../ipc/client.dart';
 import '../wire/wire.dart';
 import 'app.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
 import 'theme/app_typography.dart';
+import 'update_banner.dart';
 import 'widgets/iron_widgets.dart';
 
 /// The daemon-global settings editor. Loads the document from the daemon,
@@ -208,6 +211,8 @@ class _SettingsPageState extends State<SettingsPage> {
             _subscriptionsSection(),
             const SizedBox(height: 20),
             _diagnosticsSection(doc),
+            const SizedBox(height: 20),
+            _updatesSection(doc),
             const SizedBox(height: 24),
             _footer(),
           ],
@@ -462,8 +467,146 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// The update policy (three persisted flags — the master switch and the two
+  /// transports the daemon may check/download over) plus the live status
+  /// block: versions, last check, "Check now", and the offered update's
+  /// affordance (the same widget the Home banner uses).
+  Widget _updatesSection(Settings doc) {
+    final t = context.iron;
+    final transportsOff = !doc.updateViaTunnel && !doc.updateViaDirect;
+    return IronSectionGroup(
+      title: 'Updates',
+      rows: [
+        IronSettingRow(
+          title: 'Check for updates automatically',
+          subtitle: 'About once a day; nothing installs by itself',
+          trailing: IronSwitch(
+            value: doc.autoUpdate,
+            onChanged: (v) => _edit(() => doc.autoUpdate = v),
+          ),
+        ),
+        IronSettingRow(
+          title: 'Check through the tunnel',
+          subtitle: 'Reach the update manifest over the active session',
+          trailing: IronSwitch(
+            value: doc.updateViaTunnel,
+            onChanged: (v) => _edit(() => doc.updateViaTunnel = v),
+          ),
+        ),
+        IronSettingRow(
+          title: 'Check directly',
+          subtitle: 'Reach it outside the tunnel when no session is up',
+          trailing: IronSwitch(
+            value: doc.updateViaDirect,
+            onChanged: (v) => _edit(() => doc.updateViaDirect = v),
+          ),
+        ),
+        if (transportsOff)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+            child: Text(
+              'Both transports are off — checks are disabled.',
+              style: TextStyle(fontSize: 12, color: context.appColors.warning),
+            ),
+          ),
+        // The status block tracks the session (busy flag, check replies,
+        // download progress) — scoped so the rest of the page stays put.
+        ListenableBuilder(
+          listenable: widget.session,
+          builder: (context, _) => _updateStatusBlock(t),
+        ),
+      ],
+    );
+  }
+
+  Widget _updateStatusBlock(IronTheme t) {
+    final s = widget.session;
+    final st = s.updateStatus;
+    final offered = s.offeredUpdate;
+    final err = s.lastUpdateCheckError;
+    final versions = 'Daemon ${s.daemonVersion ?? '—'} · Client $clientVersion';
+    final String detail;
+    if (!s.connected) {
+      detail = 'Daemon unreachable.';
+    } else if (st == null) {
+      // The verb answered "unimplemented" (or has not answered yet).
+      detail = 'This daemon does not support update checks.';
+    } else {
+      final at = st.checkedAt;
+      detail = 'Last checked: ${at == null ? 'Never' : formatTimestamp(at)}';
+    }
+    final canCheck = s.connected && st != null;
+    final small = Theme.of(context).textTheme.bodySmall;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(versions, style: context.mono(13, color: t.text)),
+                    const SizedBox(height: 3),
+                    Text(detail, style: small?.copyWith(color: t.dim)),
+                    if (offered != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Text('${offered.latestVersion} available',
+                            style: small?.copyWith(
+                                color: t.accentStrong,
+                                fontWeight: FontWeight.w600)),
+                      ),
+                    if (st?.transport == 'disabled')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Text(
+                            'Checks are disabled by the transport settings.',
+                            style: small?.copyWith(
+                                color: context.appColors.warning)),
+                      ),
+                    if (err != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child:
+                            Text(err, style: small?.copyWith(color: t.danger)),
+                      ),
+                  ],
+                ),
+              ),
+              if (canCheck) ...[
+                const SizedBox(width: 12),
+                if (s.updateBusy)
+                  const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2)),
+                  )
+                else
+                  IronButton(
+                    label: 'Check now',
+                    icon: Icons.refresh,
+                    onPressed: s.checkForUpdates,
+                  ),
+              ],
+            ],
+          ),
+          if (offered != null && s.connected) ...[
+            const SizedBox(height: 10),
+            UpdateActions(session: s, status: offered),
+          ],
+        ],
+      ),
+    );
+  }
+
   /// A static footer line — the app name plus the active profile when one is
-  /// connected (the daemon doc carries no version string).
+  /// connected (versions live in the Updates section above).
   Widget _footer() {
     final t = context.iron;
     final profile = widget.session.active?.profile;

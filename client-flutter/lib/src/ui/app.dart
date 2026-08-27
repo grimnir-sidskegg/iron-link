@@ -14,6 +14,7 @@ import 'routing_page.dart';
 import 'settings_page.dart';
 import 'theme/app_colors.dart';
 import 'traffic_page.dart';
+import 'update_banner.dart';
 import 'widgets/motion_gate.dart';
 
 /// Root widget: theme + [IronScope] (so deep widgets read the controller) + the
@@ -127,22 +128,28 @@ class _ShellState extends State<_Shell> {
     };
     return Scaffold(
       backgroundColor: t.panel,
-      body: Column(
-        // Stretch so the title bar and nav span the full width — without this
-        // the Column centres them at their content width (the title bar would
-        // shrink to the wordmark and the close dot would land on the text).
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _NavBar(
-            current: _page,
-            connected: _connected,
-            running: _running,
-            onSelect: (i) => setState(() => _page = i),
-            profile:
-                ProfilePill(client: widget.client, session: widget.session),
-          ),
-          Expanded(child: body),
-        ],
+      // The tray's "Update to vX…" click is served here, above the pages, so
+      // the consent dialog opens whichever tab is showing.
+      body: UpdateInstallRequests(
+        session: widget.session,
+        child: Column(
+          // Stretch so the title bar and nav span the full width — without
+          // this the Column centres them at their content width (the title bar
+          // would shrink to the wordmark and the close dot would land on the
+          // text).
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _NavBar(
+              current: _page,
+              connected: _connected,
+              running: _running,
+              onSelect: (i) => setState(() => _page = i),
+              profile:
+                  ProfilePill(client: widget.client, session: widget.session),
+            ),
+            Expanded(child: body),
+          ],
+        ),
       ),
     );
   }

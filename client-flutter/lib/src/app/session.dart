@@ -12,6 +12,7 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 
 import '../ipc/client.dart';
+import '../platform/update_launcher.dart';
 import '../wire/wire.dart';
 
 /// One line in the session feed (logs + core errors + subscription
@@ -71,19 +72,32 @@ class TrafficPoint {
 /// Observable daemon state. Everything the UI shows is read back from the
 /// daemon (events + status polls) — never held as a parallel model.
 class DaemonSession extends ChangeNotifier {
-  DaemonSession(this.client);
+  DaemonSession(this.client, {this.launchInstaller = launchUpdateInstaller});
 
   final DaemonClient client;
+
+  /// The Windows one-click apply's installer launch; injected in tests.
+  final Future<void> Function(String setupPath) launchInstaller;
 
   static const _reconnectDelay = Duration(seconds: 1);
   static const _pollInterval = Duration(seconds: 5);
   static const _trafficWindow = 180; // seconds of chart history
   static const _feedCap = 500;
 
+  /// The safety net for [updating]: cleared even when the new daemon never
+  /// shows a different version (e.g. the user cancelled the UAC consent,
+  /// which the client cannot observe).
+  static const _updatingTimeout = Duration(minutes: 3);
+
   bool _disposed = false;
   StreamSubscription<Event>? _events;
   Timer? _retry;
   Timer? _poll;
+  Timer? _updatingTimer;
+
+  /// `daemonVersion` at the moment the installer was launched — [updating]
+  /// ends when a status poll reports a different one.
+  String? _updatingFrom;
 
   /// Monotonic id for in-flight `status` polls. The client opens one
   /// connection per request with no read timeout, so a slow poll issued
@@ -92,6 +106,13 @@ class DaemonSession extends ChangeNotifier {
   /// snaps back to the old node until the next poll. Only the LATEST-issued
   /// poll may apply its result; older responses that arrive late are dropped.
   int _statusGen = 0;
+
+  /// Bumped on every `update_progress` event. An update verb's reply is a
+  /// snapshot taken on the request connection; the download goroutine's
+  /// terminal `failed`/`downloaded` event travels on the subscribe
+  /// connection and can land BEFORE that reply (a fast mirror refusal). The
+  /// reply must then not regress the download state — see [_storeUpdateReply].
+  int _updateGen = 0;
 
   /// Whether the subscribe connection is up.
   bool connected = false;
@@ -114,6 +135,45 @@ class DaemonSession extends ChangeNotifier {
   /// the first reply — or forever against an old daemon without the verb
   /// (its "unimplemented verb" error is swallowed as "no update support").
   UpdateStatus? updateStatus;
+
+  /// The update the UI should offer: available and from a fresh manifest
+  /// (a soft-expired one is informational only). Null otherwise.
+  UpdateStatus? get offeredUpdate {
+    final st = updateStatus;
+    return st != null && st.available && !st.stale ? st : null;
+  }
+
+  /// Whether [offeredUpdate] carries a downloaded (or re-verified) installer
+  /// — the state in which Install is offered (on Windows).
+  bool get installStaged {
+    final st = offeredUpdate;
+    return st != null &&
+        st.artifact?.kind == 'installer' &&
+        (st.downloadState == 'downloaded' || st.downloadState == 'verified');
+  }
+
+  /// The `latest_version` whose banner the user dismissed — in memory only,
+  /// so the banner returns on the next launch.
+  String? dismissedUpdateVersion;
+
+  /// An Install asked for from outside the widget tree (the tray entry).
+  /// The shell consumes it with [takeInstallRequest] and runs the same
+  /// consent dialog + [applyUpdate] flow as the banner's button, so the
+  /// tray path never skips the warning about the tunnel drop.
+  bool installRequested = false;
+
+  /// The last explicit update action's failure ("Update check failed: …",
+  /// "Download failed: …", "Install failed: …"); null once one succeeds.
+  String? lastUpdateCheckError;
+
+  /// An explicit update action is in flight — the buttons' double-fire guard.
+  bool updateBusy = false;
+
+  /// The installer has been launched: the daemon is about to go away and
+  /// come back newer. The UI swaps the daemon-down banner for an "Updating…"
+  /// state; cleared when a status poll reports a different `daemon_version`,
+  /// or by [_updatingTimeout].
+  bool updating = false;
 
   bool get isRunning => entries.any((e) => e.isRunning);
 
@@ -218,6 +278,7 @@ class DaemonSession extends ChangeNotifier {
         // check_update reply is the truth, so re-read it.
         _refreshUpdateStatus();
       case UpdateProgressEvent():
+        _updateGen++;
         final st = updateStatus;
         if (st != null) {
           updateStatus = st.withProgress(
@@ -235,14 +296,141 @@ class DaemonSession extends ChangeNotifier {
   /// changes nothing — [updateStatus] just keeps its last value (null on
   /// first run).
   Future<void> _refreshUpdateStatus() async {
+    final gen = _updateGen;
     try {
       final st = await client.checkUpdate();
       if (_disposed) return;
-      updateStatus = st;
+      _storeUpdateReply(st, gen);
       notifyListeners();
     } on ClientException {
       // No update support (or the daemon went away mid-request).
     }
+  }
+
+  /// Stores an update verb's reply issued at [gen]. When `update_progress`
+  /// events arrived while the request was in flight they are fresher than
+  /// the reply's download snapshot (the event stream always ends on the
+  /// terminal state; the reply is a moment in between), so the reply's
+  /// progress triplet yields to what the events already applied.
+  void _storeUpdateReply(UpdateStatus st, int gen) {
+    final cur = updateStatus;
+    if (gen == _updateGen || cur == null) {
+      updateStatus = st;
+      return;
+    }
+    updateStatus = st.withProgress(
+        state: cur.downloadState,
+        received: cur.downloadReceived,
+        total: cur.downloadTotal);
+  }
+
+  // ---- explicit update actions (Settings "Check now", the banner buttons) --
+
+  /// "Check now": a forced synchronous check; the reply replaces
+  /// [updateStatus].
+  Future<void> checkForUpdates() =>
+      _updateAction('Update check', () => client.checkUpdate(force: true));
+
+  /// "Download": the daemon starts the installer download; progress then
+  /// arrives as `update_progress` events.
+  Future<void> startUpdateDownload() =>
+      _updateAction('Download', client.downloadUpdate);
+
+  /// "Install": the daemon re-verifies the download and hands back the
+  /// installer path, which THIS client launches (Windows). The installer will
+  /// kill the client itself, so nothing here quits pre-emptively; [updating]
+  /// is raised just before the launch and dropped again if the launch fails.
+  /// One installer at a time: while [updating] (the launched setup may still
+  /// sit at its UAC prompt) a second Install is ignored rather than spawning
+  /// a second setup.
+  Future<void> applyUpdate() async {
+    if (updating) return;
+    await _updateAction('Install', () async {
+      final st = await client.applyUpdate();
+      updateStatus = st;
+      final path = st.setupPath;
+      if (st.downloadState != 'verified' || path == null || path.isEmpty) {
+        throw const UpdateLaunchError(
+            'the daemon did not hand back a verified installer');
+      }
+      _beginUpdating(st);
+      try {
+        await launchInstaller(path);
+      } on Object {
+        _endUpdating(); // no installer is coming — drop the state, then report
+        rethrow;
+      }
+      return st;
+    });
+  }
+
+  /// Asks the shell to run the Install flow (consent dialog + [applyUpdate])
+  /// on behalf of a caller with no widget context — the tray entry.
+  void requestInstall() {
+    installRequested = true;
+    notifyListeners();
+  }
+
+  /// Claims a pending [requestInstall]; true exactly once per request.
+  bool takeInstallRequest() {
+    if (!installRequested) return false;
+    installRequested = false;
+    return true;
+  }
+
+  /// Runs one explicit update action under the busy guard: the reply
+  /// replaces [updateStatus]; a failure lands in [lastUpdateCheckError] as
+  /// `<what> failed: <message>`.
+  Future<void> _updateAction(
+      String what, Future<UpdateStatus> Function() action) async {
+    if (updateBusy) return;
+    updateBusy = true;
+    lastUpdateCheckError = null;
+    notifyListeners();
+    final gen = _updateGen;
+    try {
+      final st = await action();
+      if (_disposed) return;
+      _storeUpdateReply(st, gen);
+    } on ClientException catch (e) {
+      lastUpdateCheckError = '$what failed: ${e.message}';
+    } on UpdateLaunchError catch (e) {
+      lastUpdateCheckError = '$what failed: ${e.message}';
+    } finally {
+      // Whatever happened, the buttons must come back.
+      if (!_disposed) {
+        updateBusy = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Hides the banner for the version currently offered (until relaunch).
+  void dismissUpdate() {
+    dismissedUpdateVersion = updateStatus?.latestVersion;
+    notifyListeners();
+  }
+
+  void _beginUpdating(UpdateStatus applied) {
+    updating = true;
+    // The status poll may not have answered yet (its first reply is dropped
+    // when a state event lands first); the apply reply's current_version is
+    // the same build's string, so it is a valid baseline too.
+    _updatingFrom = daemonVersion ?? applied.currentVersion;
+    _updatingTimer?.cancel();
+    _updatingTimer = Timer(_updatingTimeout, () {
+      if (_disposed || !updating) return;
+      _endUpdating();
+      notifyListeners();
+    });
+    notifyListeners();
+  }
+
+  void _endUpdating() {
+    updating = false;
+    _updatingFrom = null;
+    _updatingTimer?.cancel();
+    _updatingTimer = null;
   }
 
   void _pushFeed(String level, String message) {
@@ -277,6 +465,16 @@ class DaemonSession extends ChangeNotifier {
         default:
           return;
       }
+      // The restarted daemon answers with its new build: the update landed.
+      // Without a known baseline (or a version in the reply) only the safety
+      // timeout ends it — any answered poll must not drop the flag while the
+      // installer is still at its UAC prompt.
+      final from = _updatingFrom;
+      final now = daemonVersion;
+      if (updating && from != null && from.isNotEmpty && now != null &&
+          now != from) {
+        _endUpdating();
+      }
       notifyListeners();
     } on ClientException {
       // The subscribe loop owns connectivity reporting; a failed poll on
@@ -293,6 +491,7 @@ class DaemonSession extends ChangeNotifier {
     _events?.cancel();
     _retry?.cancel();
     _poll?.cancel();
+    _updatingTimer?.cancel();
     super.dispose();
   }
 }

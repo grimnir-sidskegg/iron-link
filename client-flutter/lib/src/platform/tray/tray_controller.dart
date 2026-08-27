@@ -14,21 +14,28 @@ import 'package:window_manager/window_manager.dart';
 import '../../app/session.dart';
 import '../../ipc/client.dart';
 import '../../wire/wire.dart';
+import '../open_url.dart';
 import 'tray_menu_item.dart';
 
 /// The visual tray state, driving the icon's status dot.
 enum TrayState { off, connecting, connected }
 
 abstract class TrayController with WindowListener {
-  TrayController({required this.client, required this.session});
+  TrayController({required this.client, required this.session, HostOs? host})
+      : host = host ?? HostOs.current;
 
   final DaemonClient client;
   final DaemonSession session;
+
+  /// The OS the update entry branches on; injected in tests.
+  final HostOs host;
 
   bool _busy = false; // a connect/disconnect/switch is in flight
   bool _windowHooked = false;
   TrayState _shown = TrayState.off;
   String? _lastActive; // last activeNodeLive, to repaint the node radio
+  String? _lastUpdateLabel; // the "Update to vX…" entry, to add/drop it
+  bool _lastUpdateEnabled = true; // its gate, to repaint it (Windows snapshots)
   List<NodeInfo> _nodes = const [];
   int _lastStoreRev = -1;
 
@@ -68,6 +75,8 @@ abstract class TrayController with WindowListener {
   Future<void> init() async {
     _shown = _state();
     _lastActive = session.activeNodeLive;
+    _lastUpdateLabel = _updateLabel();
+    _lastUpdateEnabled = _updateEnabled();
     try {
       await platformStart(buildMenu(), _shown);
     } catch (e) {
@@ -109,9 +118,25 @@ abstract class TrayController with WindowListener {
         TrayMenuItem(id: 3, isSeparator: true),
         TrayMenuItem(id: 6, label: 'Select Node', children: _buildNodeItems()),
         TrayMenuItem(id: 7, isSeparator: true),
+        // Present only while a fresh manifest offers a newer version.
+        if (_updateLabel() case final label?)
+          TrayMenuItem(
+              id: 8,
+              label: label,
+              enabled: _updateEnabled,
+              onClick: () => unawaited(_update())),
         TrayMenuItem(id: 4, label: 'Show iron-link', onClick: showWindow),
         TrayMenuItem(id: 5, label: 'Quit', onClick: _quit),
       ];
+
+  String? _updateLabel() {
+    final st = session.offeredUpdate;
+    return st == null ? null : 'Update to ${st.latestVersion}…';
+  }
+
+  // Held while an action is in flight AND while a launched installer runs —
+  // a second click must not spawn a second setup.
+  bool _updateEnabled() => !session.updateBusy && !session.updating;
 
   // Node-picker submenu: one row per node of the active profile, the current
   // one marked. Ids 100+. Empty / daemon unreachable → a disabled note.
@@ -176,11 +201,17 @@ abstract class TrayController with WindowListener {
   Future<void> _refresh() async {
     final next = _state();
     final active = session.activeNodeLive;
+    final updateLabel = _updateLabel();
+    final updateEnabled = _updateEnabled();
     final stateChanged = next != _shown;
     final activeChanged = active != _lastActive;
-    if (!stateChanged && !activeChanged) return;
+    final updateChanged =
+        updateLabel != _lastUpdateLabel || updateEnabled != _lastUpdateEnabled;
+    if (!stateChanged && !activeChanged && !updateChanged) return;
     _shown = next;
     _lastActive = active;
+    _lastUpdateLabel = updateLabel;
+    _lastUpdateEnabled = updateEnabled;
     if (stateChanged) await platformSetIcon(next);
     await platformSetMenu(buildMenu());
   }
@@ -247,6 +278,18 @@ abstract class TrayController with WindowListener {
     await session.refreshStatus();
     _busy = false;
     await _refresh();
+  }
+
+  /// The "Update to vX…" entry: surface the window (its banner explains the
+  /// state and carries the buttons); on Windows with the installer already
+  /// downloaded, hand the shell an install request — it runs the SAME consent
+  /// dialog + apply flow as the banner's Install button, so the tray path
+  /// never skips the tunnel-drop warning and reports a launch failure the
+  /// same way.
+  Future<void> _update() async {
+    await showWindow();
+    if (host != HostOs.windows || !_updateEnabled()) return;
+    if (session.installStaged) session.requestInstall();
   }
 
   @protected

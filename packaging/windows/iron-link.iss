@@ -83,6 +83,13 @@ Filename: "{app}\iron-link-daemon.exe"; Parameters: "install"; StatusMsg: "Regis
 Filename: "{app}\iron-link-daemon.exe"; Parameters: "start"; StatusMsg: "Starting the iron-link service..."; Flags: runhidden
 ; Launch the app (unprivileged) — it connects to the service over the pipe.
 Filename: "{app}\app\iron_link_flutter.exe"; Description: "Launch iron-link"; Flags: postinstall nowait skipifsilent
+; In-app update: the client launches this installer silently (/SILENT
+; /SUPPRESSMSGBOXES /NORESTART /UPDATE=1) and PrepareToInstall kills it, so
+; the postinstall entry above (skipifsilent) never relaunches it. This one
+; does — unelevated (runasoriginaluser), so the client runs as the user, not
+; as the elevated setup — and ONLY when /UPDATE=1 was passed: a plain silent
+; install from the command line must stay silent.
+Filename: "{app}\app\iron_link_flutter.exe"; Flags: nowait runasoriginaluser; Check: IsAppUpdate
 
 [UninstallRun]
 ; Stop + deregister the service before its files are deleted.
@@ -90,6 +97,13 @@ Filename: "{app}\iron-link-daemon.exe"; Parameters: "stop"; Flags: runhidden; Ru
 Filename: "{app}\iron-link-daemon.exe"; Parameters: "uninstall"; Flags: runhidden; RunOnceId: "DelSvc"
 
 [Code]
+// True when the client started this run as an in-app update (/UPDATE=1);
+// gates the unelevated relaunch [Run] entry.
+function IsAppUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   rc: Integer;
