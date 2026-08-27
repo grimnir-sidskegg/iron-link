@@ -30,11 +30,24 @@ func defaultRestoreOnStart(goos string) bool {
 	return goos != "windows"
 }
 
+// defaultIPVersion differs by OS. Windows hosts frequently have no working
+// IPv6, and a dual-stack (or v6-preferring) resolver under our TUN black-holes
+// v4-only destinations, so Windows defaults to v4-only; other OSes keep
+// dual-stack. An explicit persisted value always wins (LoadSettings decodes
+// settings.json over this document). goos is passed in (runtime.GOOS at the
+// call site) so both branches are testable from any host.
+func defaultIPVersion(goos string) string {
+	if goos == "windows" {
+		return "v4"
+	}
+	return "both"
+}
+
 // DefaultSettings returns the document every field falls back to.
 func DefaultSettings() api.Settings {
 	return api.Settings{
 		LogLevel:  "info",
-		IPVersion: "both",
+		IPVersion: defaultIPVersion(runtime.GOOS),
 		DNS: api.DNSSettings{
 			Strategy: "prefer_ipv4",
 			Servers:  []api.DNSServer{{Type: "tls", Address: "8.8.8.8"}},

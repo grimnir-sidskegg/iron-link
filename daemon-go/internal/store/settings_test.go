@@ -150,6 +150,24 @@ func TestDefaultRestoreOnStartIsOffOnWindows(t *testing.T) {
 	}
 }
 
+func TestDefaultIPVersionIsV4OnWindows(t *testing.T) {
+	if defaultIPVersion("windows") != "v4" {
+		t.Fatal("ip_version default must be v4 on windows")
+	}
+	for _, goos := range []string{"linux", "darwin"} {
+		if defaultIPVersion(goos) != "both" {
+			t.Fatalf("ip_version default must be both on %s", goos)
+		}
+	}
+	want := "both"
+	if runtime.GOOS == "windows" {
+		want = "v4"
+	}
+	if got := DefaultSettings().IPVersion; got != want {
+		t.Fatalf("DefaultSettings().IPVersion = %q on %s, want %q", got, runtime.GOOS, want)
+	}
+}
+
 // (b) An explicit persisted choice must survive a load regardless of the
 // per-OS default: LoadSettings decodes the file over DefaultSettings, and
 // SaveSettings always writes the key (no omitempty), so a present value wins.
