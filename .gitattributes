@@ -1,0 +1,6 @@
+# The update-manifest fixtures are verified byte-for-byte against a detached
+# minisign signature. Any end-of-line conversion on checkout (Windows sets
+# core.autocrlf on the CI runner) rewrites the manifest to CRLF and breaks
+# verification. Keep these bytes exactly as committed on every platform.
+daemon-go/internal/update/testdata/** -text
+*.minisig -text
