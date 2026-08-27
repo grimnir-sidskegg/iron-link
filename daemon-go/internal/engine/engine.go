@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"sync"
 
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
@@ -28,6 +29,12 @@ type backendOptions struct {
 	NodeID string `json:"node_id,omitempty"`
 }
 
+// xrayNewMu serializes xray instance construction: core.New rewrites
+// process-wide dialer state (transport/internet's system dialer globals)
+// without synchronization, so the parallel ephemeral probe cores of a
+// test_latency sweep would race on it.
+var xrayNewMu sync.Mutex
+
 // BuildXray builds and STARTS an xray instance from a JSON config. The caller
 // owns it and must Close it. (Ported from the spike.)
 func BuildXray(cfg []byte) (*xcore.Instance, error) {
@@ -35,7 +42,9 @@ func BuildXray(cfg []byte) (*xcore.Instance, error) {
 	if err != nil {
 		return nil, err
 	}
+	xrayNewMu.Lock()
 	inst, err := xcore.New(c)
+	xrayNewMu.Unlock()
 	if err != nil {
 		return nil, err
 	}

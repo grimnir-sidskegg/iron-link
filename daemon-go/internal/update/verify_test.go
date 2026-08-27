@@ -80,6 +80,15 @@ func TestVerifyManifestRoundTrip(t *testing.T) {
 			wantErr: "signature verification failed",
 		},
 		{
+			// Correct key, correct comment, but the legacy (non-prehashed)
+			// algorithm: the verifier pins the publish path's -H format.
+			name: "legacy algorithm refused",
+			build: func(t *testing.T, current, _ minisign.PrivateKey) ([]byte, []byte) {
+				return manifest, minisign.SignWithComments(current, manifest, comment, "test signature")
+			},
+			wantErr: "not the prehashed",
+		},
+		{
 			name: "signature by unknown key",
 			build: func(t *testing.T, _, _ minisign.PrivateKey) ([]byte, []byte) {
 				_, stranger, err := minisign.GenerateKey(nil)
@@ -170,6 +179,13 @@ func TestVerifyManifestRoundTrip(t *testing.T) {
 			}
 			if v.KeyName != tc.wantKey {
 				t.Fatalf("verified by %q, want %q", v.KeyName, tc.wantKey)
+			}
+			wantID := keys[0].pub.ID()
+			if tc.wantKey == KeyRecovery {
+				wantID = keys[1].pub.ID()
+			}
+			if v.KeyID != wantID {
+				t.Fatalf("verified key id %X, want %X", v.KeyID, wantID)
 			}
 			if v.Manifest.Version != "v1.2.3" || v.Manifest.Seq != 7 {
 				t.Fatalf("unexpected verified manifest: %+v", v.Manifest)

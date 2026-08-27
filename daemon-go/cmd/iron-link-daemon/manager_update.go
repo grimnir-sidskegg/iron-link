@@ -100,12 +100,14 @@ const (
 // updateLoop runs for the daemon's lifetime: a short jittered initial
 // delay, then an hourly tick that runs one check when auto_update is on, a
 // transport is available, and the jittered daily interval has elapsed since
-// the last ATTEMPT. m.updateLastAttempt is in-memory on purpose — a daemon
-// restart may check early, which is harmless; what must persist is the
-// anti-downgrade floor, and that lives in the FileSeqStore. It is a manager
-// field (not loop state) so a forced check_update also pushes the next
-// automatic check out.
+// the last ATTEMPT. The attempt clock is seeded from the persisted state:
+// an auto-start service restarts on every boot, and an in-memory clock
+// alone would fetch 60-120 s after each boot — a boot-correlated pattern in
+// place of the jittered daily one. m.updateLastAttempt is a manager field
+// (not loop state) so a forced check_update also pushes the next automatic
+// check out.
 func (m *manager) updateLoop(ctx context.Context) {
+	m.seedUpdateAttemptClock()
 	select {
 	case <-ctx.Done():
 		return
@@ -190,11 +192,43 @@ func (m *manager) resolveUpdateTransport() (http.RoundTripper, string, api.Setti
 }
 
 // noteUpdateAttempt stamps the shared attempt clock the loop's cadence
-// keys on.
+// keys on, in memory and on disk. The persisted copy only seeds the next
+// process (losing it costs one early check), so a write error is logged,
+// not propagated.
 func (m *manager) noteUpdateAttempt() {
+	now := time.Now()
 	m.mu.Lock()
-	m.updateLastAttempt = time.Now()
+	m.updateLastAttempt = now
 	m.mu.Unlock()
+	if err := m.updateStateStore().SetLastAttempt(now); err != nil {
+		m.logSink("info", "update check: persist attempt clock: "+err.Error())
+	}
+}
+
+// seedUpdateAttemptClock loads the persisted attempt clock into
+// m.updateLastAttempt unless a check already ran in this process. A stamp
+// from the future (the clock was set back) is discarded: honouring it could
+// silence checks for as long as the clock had been ahead.
+func (m *manager) seedUpdateAttemptClock() {
+	last, err := m.updateStateStore().LastAttempt()
+	if err != nil {
+		m.logSink("info", "update check: attempt clock: "+err.Error())
+		return
+	}
+	if last.IsZero() || last.After(time.Now()) {
+		return
+	}
+	m.mu.Lock()
+	if m.updateLastAttempt.IsZero() {
+		m.updateLastAttempt = last
+	}
+	m.mu.Unlock()
+}
+
+// updateStateStore is the persisted update trust state at the config root:
+// the anti-downgrade floor, the revoked key ids and the attempt clock.
+func (m *manager) updateStateStore() *update.FileSeqStore {
+	return update.NewFileSeqStore(m.store.Dir())
 }
 
 // chooseUpdateTransport maps the transport flags onto a way to reach the
@@ -222,7 +256,7 @@ func (m *manager) runUpdateCheck(ctx context.Context, transport http.RoundTrippe
 		CurrentVersion: m.version,
 		ManifestURLs:   m.manifestURLs(),
 		Transport:      transport,
-		SeqStore:       update.NewFileSeqStore(m.store.Dir()),
+		SeqStore:       m.updateStateStore(),
 		Now:            m.updateNow, // nil = time.Now
 	})
 	// Drop any keep-alive connection: a tunnel-dialled idle conn must not

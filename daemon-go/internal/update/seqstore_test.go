@@ -1,10 +1,13 @@
 package update
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestFileSeqStoreRoundTrip(t *testing.T) {
@@ -65,6 +68,63 @@ func TestFileSeqStoreCreatesRoot(t *testing.T) {
 		if perm := info.Mode().Perm(); perm != 0o700 {
 			t.Errorf("created root mode = %o, want 700", perm)
 		}
+	}
+}
+
+// TestFileSeqStoreFieldsCoexist: the floor, the revoked key ids and the
+// attempt clock share one document, and each setter leaves the others as
+// they were.
+func TestFileSeqStoreFieldsCoexist(t *testing.T) {
+	dir := t.TempDir()
+	s := NewFileSeqStore(dir)
+	if last, err := s.LastAttempt(); err != nil || !last.IsZero() {
+		t.Fatalf("missing file must read as a zero attempt clock, got %v, %v", last, err)
+	}
+	if ids, err := s.RevokedKeyIDs(); err != nil || len(ids) != 0 {
+		t.Fatalf("missing file must read as no revoked ids, got %v, %v", ids, err)
+	}
+
+	stamp := time.Date(2026, 8, 27, 12, 34, 56, 0, time.UTC)
+	if err := s.SetLastAttempt(stamp); err != nil {
+		t.Fatalf("SetLastAttempt: %v", err)
+	}
+	if err := s.RevokeKeyID(0xDEADBEEFCAFEF00D); err != nil {
+		t.Fatalf("RevokeKeyID: %v", err)
+	}
+	if err := s.RevokeKeyID(0xDEADBEEFCAFEF00D); err != nil {
+		t.Fatalf("RevokeKeyID again: %v", err)
+	}
+	if err := s.SetLastSeenSeq(7); err != nil {
+		t.Fatalf("SetLastSeenSeq: %v", err)
+	}
+
+	fresh := NewFileSeqStore(dir)
+	if seq, err := fresh.LastSeenSeq(); err != nil || seq != 7 {
+		t.Fatalf("seq = %d, %v; want 7", seq, err)
+	}
+	if last, err := fresh.LastAttempt(); err != nil || !last.Equal(stamp) {
+		t.Fatalf("attempt clock = %v, %v; want %v", last, err, stamp)
+	}
+	if ids, err := fresh.RevokedKeyIDs(); err != nil || fmt.Sprint(ids) != fmt.Sprint([]uint64{0xDEADBEEFCAFEF00D}) {
+		t.Fatalf("revoked ids = %X, %v; want one DEADBEEFCAFEF00D", ids, err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, seqStateName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"revoked_key_ids":["deadbeefcafef00d"]`) {
+		t.Fatalf("revoked ids must persist as hex, got %s", data)
+	}
+}
+
+func TestFileSeqStoreCorruptRevokedIDErrors(t *testing.T) {
+	dir := t.TempDir()
+	doc := `{"last_seen_seq":7,"revoked_key_ids":["not-hex"]}`
+	if err := os.WriteFile(filepath.Join(dir, seqStateName), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewFileSeqStore(dir).RevokedKeyIDs(); err == nil {
+		t.Fatal("a corrupt revoked id must error, not read as none")
 	}
 }
 

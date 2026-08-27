@@ -164,8 +164,11 @@ cadence with ±10% jitter.
 
 Integrity does not depend on the hosting origin. The manifest is
 minisign-signed with an offline key; the daemon carries two public keys (a
-routine `current` key and a `recovery` key for rotation). A monotonic `seq`,
-mirrored in the signature's trusted comment, rejects replayed older manifests.
+routine `current` key and a `recovery` key for rotation). A recovery-signed
+manifest retires the `current` key on every daemon that verifies it: from
+then on only recovery-signed manifests are accepted until a build carrying
+new keys is installed. A monotonic `seq`, mirrored in the signature's
+trusted comment, rejects replayed older manifests.
 The installer is pinned by `sha256` and size, and re-hashed right before the
 client launches it.
 
@@ -195,7 +198,10 @@ it:
 2. Rename the draft to `update.json`; fill in `seq` (last published + 1),
    `published_at`, and `expires_at` (about 180 days out).
 3. `scripts/sign-update.sh update.json <current.key>` — signs the manifest and
-   verifies it against the compiled-in keys.
+   verifies it against the compiled-in keys. Sign with the `current` key
+   only; the `recovery` key is for retiring a lost or compromised `current`
+   key, and a manifest signed with it must carry a `seq` above anything the
+   old key may have published.
 4. Push `update.json` and `update.json.minisig` to the orphan `updates` branch
    (the script prints the commands).
 

@@ -16,6 +16,11 @@
 # Signing is prehashed (-H) and the trusted comment mirrors the version and
 # seq of the JSON; the daemon rejects a signature whose comment does not
 # match the manifest body.
+#
+# Sign with the CURRENT key. The recovery key is not for routine use: a
+# manifest signed with it makes every daemon that verifies it refuse the
+# compiled-in current key from then on (a rotation after loss/compromise),
+# and it must carry a seq above anything the old key may have published.
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then

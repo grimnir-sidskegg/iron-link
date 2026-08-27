@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ var testNow = time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 type memSeqStore struct {
 	seq     uint64
 	sets    []uint64
+	revoked []uint64
 	loadErr error
 	saveErr error
 }
@@ -35,6 +37,16 @@ func (s *memSeqStore) SetLastSeenSeq(seq uint64) error {
 	}
 	s.seq = seq
 	s.sets = append(s.sets, seq)
+	return nil
+}
+
+func (s *memSeqStore) RevokedKeyIDs() ([]uint64, error) { return s.revoked, s.loadErr }
+
+func (s *memSeqStore) RevokeKeyID(id uint64) error {
+	if s.saveErr != nil {
+		return s.saveErr
+	}
+	s.revoked = append(s.revoked, id)
 	return nil
 }
 
@@ -127,6 +139,13 @@ func TestCheckPolicy(t *testing.T) {
 		{
 			name:     "dev build checked but never prompted",
 			current:  "dev",
+			wantSets: []uint64{7},
+		},
+		{
+			// CI stamps untagged (tester) builds v0.0.0-<sha>; comparing
+			// that would offer every such build a downgrade to the release.
+			name:     "untagged CI build checked but never prompted",
+			current:  "v0.0.0-abc1234",
 			wantSets: []uint64{7},
 		},
 		{
@@ -243,7 +262,69 @@ func TestCheckPolicy(t *testing.T) {
 			if fmt.Sprint(store.sets) != fmt.Sprint(tc.wantSets) {
 				t.Fatalf("seq sets = %v, want %v", store.sets, tc.wantSets)
 			}
+			if len(store.revoked) != 0 {
+				t.Fatalf("a current-signed manifest must not revoke anything, got %v", store.revoked)
+			}
 		})
+	}
+}
+
+// TestCheckRecoveryKeyRevokesCurrent pins the revocation half of the
+// two-key design: once a recovery-signed manifest is accepted, the current
+// key's id is persisted as revoked and every later current-signed manifest
+// is refused (with the floor untouched), while the recovery key keeps
+// working. A recovery-signed manifest below the floor is a rollback like
+// any other and revokes nothing.
+func TestCheckRecoveryKeyRevokesCurrent(t *testing.T) {
+	current, recovery, keys := genTestKeys(t)
+	currentID, recoveryID := keys[0].pub.ID(), keys[1].pub.ID()
+	signed := func(key minisign.PrivateKey, seq int) *httptest.Server {
+		doc := checkManifestDoc()
+		doc["seq"] = seq
+		manifest, sig := signDoc(t, key, doc)
+		return serveManifest(t, manifest, sig)
+	}
+	store := &memSeqStore{seq: 7}
+
+	// Replayed recovery-signed manifest below the floor: rollback, no revocation.
+	_, err := Check(context.Background(), checkConfig(signed(recovery, 6), store, keys, "v1.0.0"))
+	if !errors.Is(err, ErrRollback) {
+		t.Fatalf("want ErrRollback for a recovery-signed manifest below the floor, got %v", err)
+	}
+	if len(store.revoked) != 0 {
+		t.Fatalf("a rollback must not revoke, got %v", store.revoked)
+	}
+
+	res, err := Check(context.Background(), checkConfig(signed(recovery, 8), store, keys, "v1.0.0"))
+	if err != nil {
+		t.Fatalf("recovery-signed check: %v", err)
+	}
+	if res.VerifiedKey != KeyRecovery || !res.Available {
+		t.Fatalf("recovery-signed result: %+v", res)
+	}
+	if fmt.Sprint(store.revoked) != fmt.Sprint([]uint64{currentID}) {
+		t.Fatalf("revoked = %X, want the current key %X", store.revoked, currentID)
+	}
+	if store.seq != 8 {
+		t.Fatalf("floor = %d, want 8", store.seq)
+	}
+
+	// The old current key cannot outrun the owner with a higher seq.
+	res, err = Check(context.Background(), checkConfig(signed(current, 9), store, keys, "v1.0.0"))
+	if !errors.Is(err, ErrRevokedKey) {
+		t.Fatalf("want ErrRevokedKey for the revoked current key, got %v (%+v)", err, res)
+	}
+	if store.seq != 8 || len(store.sets) != 1 {
+		t.Fatalf("a revoked-key manifest must not move the floor: seq=%d sets=%v", store.seq, store.sets)
+	}
+
+	// Recovery keeps working, and re-accepting it revokes nothing new.
+	res, err = Check(context.Background(), checkConfig(signed(recovery, 9), store, keys, "v1.0.0"))
+	if err != nil || res.VerifiedKey != KeyRecovery {
+		t.Fatalf("second recovery-signed check: %+v, %v", res, err)
+	}
+	if fmt.Sprint(store.revoked) != fmt.Sprint([]uint64{currentID}) || slices.Contains(store.revoked, recoveryID) {
+		t.Fatalf("revoked = %X after the second recovery manifest, want only %X", store.revoked, currentID)
 	}
 }
 
@@ -491,7 +572,8 @@ func TestNormalizeCurrentVersion(t *testing.T) {
 	}{
 		{"v1.2.3", "v1.2.3"},
 		{"v0.1.0.r12.gabc1234", "v0.1.0"},
-		{"v0.0.0-abc1234", "v0.0.0-abc1234"}, // CI untagged build: valid prerelease
+		{"v0.0.0-abc1234", ""}, // CI untagged build: the no-version sentinel, never compared
+		{"v0.0.0", ""},
 		{"dev", ""},
 		{"1.2.3", ""},                      // v-prefix required
 		{"v0.1.0.alpha.8.r5.gabc1234", ""}, // prerelease-tag describe: not semver after the strip

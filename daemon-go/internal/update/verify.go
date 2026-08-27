@@ -15,10 +15,12 @@ const (
 )
 
 // Verified is the outcome of a successful manifest verification: the parsed
-// document plus the name of the compiled-in key whose signature checked out.
+// document plus the name and minisign id of the compiled-in key whose
+// signature checked out.
 type Verified struct {
 	Manifest Manifest
 	KeyName  string
+	KeyID    uint64
 }
 
 type trustedKey struct {
@@ -60,6 +62,12 @@ func verifyManifest(keys []trustedKey, manifestJSON, signature []byte) (*Verifie
 	if err := sig.UnmarshalText(signature); err != nil {
 		return nil, fmt.Errorf("update: malformed signature: %w", err)
 	}
+	// Only the prehashed algorithm (minisign -S -H, the publish path) is
+	// accepted. The algorithm byte is unsigned, so the verifier pins it here
+	// instead of following whatever the signature declares.
+	if sig.Algorithm != minisign.HashEdDSA {
+		return nil, fmt.Errorf("update: signature algorithm %#x is not the prehashed minisign format", sig.Algorithm)
+	}
 	var key *trustedKey
 	for i := range keys {
 		if keys[i].pub.ID() == sig.KeyID {
@@ -70,8 +78,6 @@ func verifyManifest(keys []trustedKey, manifestJSON, signature []byte) (*Verifie
 	if key == nil {
 		return nil, fmt.Errorf("update: signature key %X matches no trusted key", sig.KeyID)
 	}
-	// Handles both the prehashed ("ED", minisign -H — the publish path) and
-	// the legacy ("Ed") algorithm; the algorithm is read from the signature.
 	if !minisign.Verify(key.pub, manifestJSON, signature) {
 		return nil, fmt.Errorf("update: signature verification failed (%s key)", key.name)
 	}
@@ -87,7 +93,7 @@ func verifyManifest(keys []trustedKey, manifestJSON, signature []byte) (*Verifie
 		return nil, fmt.Errorf("update: trusted comment version=%s seq=%d does not match manifest version=%s seq=%d",
 			version, seq, m.Version, m.Seq)
 	}
-	return &Verified{Manifest: *m, KeyName: key.name}, nil
+	return &Verified{Manifest: *m, KeyName: key.name, KeyID: key.pub.ID()}, nil
 }
 
 // parseTrustedComment extracts the version=<v> and seq=<n> tokens from the

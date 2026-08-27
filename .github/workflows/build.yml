@@ -46,7 +46,9 @@ jobs:
       # the installer. `numeric` is the digits-only X.Y.Z for the places that
       # cannot hold a prerelease suffix (Windows VERSIONINFO, flutter
       # --build-name): the tag version with any -suffix stripped, or 0.0.0
-      # for the sha fallback.
+      # for the sha fallback. 0.0.0 is a sentinel the daemon's update check
+      # treats as "unstamped, never compare" (internal/update), so a
+      # dispatch build is never offered the latest release as a downgrade.
       - name: Compute version
         id: ver
         shell: bash

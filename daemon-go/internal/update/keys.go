@@ -3,7 +3,10 @@ package update
 // Compiled-in minisign public keys for update-manifest verification.
 // Two keys ship from day one: "current" signs routine releases; "recovery"
 // exists only to rotate away from a lost or compromised current key (its
-// secret half lives on separate offline media).
+// secret half lives on separate offline media). A recovery-signed manifest
+// is that rotation: every daemon that accepts one persists the current
+// key's id as revoked (Check) and refuses current-signed manifests until a
+// build with new keys is installed — never sign a routine release with it.
 //
 // DEV PLACEHOLDERS — both values below belong to development keypairs used
 // by the test suite. They must be replaced with owner-generated production

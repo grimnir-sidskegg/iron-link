@@ -122,6 +122,44 @@ func TestUpdateCheckAutoUpdateGate(t *testing.T) {
 	}
 }
 
+// TestUpdateAttemptClockPersists: the loop's attempt clock survives a
+// restart — noteUpdateAttempt lands in update_state.json and a fresh
+// manager over the same config root seeds itself from it, so a rebooted
+// service keeps the daily cadence instead of checking right after boot. A
+// stamp from the future is discarded.
+func TestUpdateAttemptClockPersists(t *testing.T) {
+	m := fixtureManager(t)
+	m.noteUpdateAttempt()
+	m.mu.Lock()
+	stamped := m.updateLastAttempt
+	m.mu.Unlock()
+	if stamped.IsZero() {
+		t.Fatal("noteUpdateAttempt must stamp the in-memory clock")
+	}
+	persisted, err := update.NewFileSeqStore(m.store.Dir()).LastAttempt()
+	if err != nil || persisted.IsZero() {
+		t.Fatalf("persisted attempt clock = %v, %v", persisted, err)
+	}
+	if d := stamped.Sub(persisted); d < 0 || d >= time.Second {
+		t.Fatalf("persisted %v drifts from stamped %v", persisted, stamped)
+	}
+
+	restarted := newManager(m.store)
+	restarted.seedUpdateAttemptClock()
+	if !restarted.updateLastAttempt.Equal(persisted) {
+		t.Fatalf("seeded clock = %v, want the persisted %v", restarted.updateLastAttempt, persisted)
+	}
+
+	if err := update.NewFileSeqStore(m.store.Dir()).SetLastAttempt(time.Now().Add(48 * time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	ahead := newManager(m.store)
+	ahead.seedUpdateAttemptClock()
+	if !ahead.updateLastAttempt.IsZero() {
+		t.Fatalf("a future stamp must be discarded, got %v", ahead.updateLastAttempt)
+	}
+}
+
 // TestUpdateURLOverrideReachesCheck: the IRON_LINK_UPDATE_URL override
 // installed at startup is what a check fetches from — the manifest and its
 // signature are requested from the override host, never the production

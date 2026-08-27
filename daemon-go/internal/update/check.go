@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -41,12 +42,21 @@ const (
 // never a routine condition, so it is distinct from fetch errors.
 var ErrRollback = errors.New("update: manifest seq below last seen")
 
-// SeqStore persists the highest manifest seq this daemon has accepted —
-// the anti-downgrade floor. LastSeenSeq returns 0 when nothing has been
-// stored yet.
+// ErrRevokedKey marks a manifest signed by a compiled-in key this daemon
+// has retired: a recovery-signed manifest was accepted earlier, and the
+// recovery key is only ever used to rotate away from a lost or compromised
+// current key.
+var ErrRevokedKey = errors.New("update: manifest signed by a revoked key")
+
+// SeqStore persists the trust state that must outlive the process: the
+// highest manifest seq this daemon has accepted (the anti-downgrade floor;
+// LastSeenSeq returns 0 when nothing has been stored yet) and the ids of
+// the compiled-in keys it no longer accepts.
 type SeqStore interface {
 	LastSeenSeq() (uint64, error)
 	SetLastSeenSeq(seq uint64) error
+	RevokedKeyIDs() ([]uint64, error)
+	RevokeKeyID(id uint64) error
 }
 
 // Config carries everything Check needs. The library knows nothing about
@@ -130,6 +140,13 @@ func Check(ctx context.Context, cfg Config) (*Result, error) {
 		}
 		return nil, err
 	}
+	revoked, err := cfg.SeqStore.RevokedKeyIDs()
+	if err != nil {
+		return nil, fmt.Errorf("update: load revoked keys: %w", err)
+	}
+	if slices.Contains(revoked, v.KeyID) {
+		return nil, fmt.Errorf("%w: %s key %X", ErrRevokedKey, v.KeyName, v.KeyID)
+	}
 	m := v.Manifest
 	res := &Result{CheckedAt: now(), VerifiedKey: v.KeyName}
 
@@ -144,6 +161,20 @@ func Check(ctx context.Context, cfg Config) (*Result, error) {
 	}
 	if m.Seq < last {
 		return nil, fmt.Errorf("%w: manifest seq %d < last seen %d", ErrRollback, m.Seq, last)
+	}
+	// A recovery signature means the current key is gone (lost or
+	// compromised): retire every other compiled-in key on this daemon, so a
+	// holder of the old current key cannot outrun the owner with later
+	// current-signed manifests. Only past the seq gate — a replayed old
+	// recovery-signed manifest must not revoke a rotated-in current key.
+	if v.KeyName == KeyRecovery {
+		for _, k := range keys {
+			if id := k.pub.ID(); k.name != KeyRecovery && !slices.Contains(revoked, id) {
+				if err := cfg.SeqStore.RevokeKeyID(id); err != nil {
+					return nil, fmt.Errorf("update: persist key revocation: %w", err)
+				}
+			}
+		}
 	}
 	// Advance the floor only after full verification (above); a bad
 	// signature or a rollback must never move it.
@@ -185,10 +216,15 @@ var gitDescribeTail = regexp.MustCompile(`\.r\d+\.g[0-9a-f]+.*$`)
 // normalizeCurrentVersion maps the stamped build version onto comparable
 // semver. Anything that does not normalize to a valid v-prefixed semver
 // ("dev", exotic tails) yields "" — the caller treats that as "cannot
-// compare, never prompt".
+// compare, never prompt". So does 0.0.0: CI stamps untagged builds as
+// v0.0.0-<sha>, and as valid semver that sorts below every release, which
+// would offer each tester build a downgrade to the latest release.
 func normalizeCurrentVersion(v string) string {
 	v = gitDescribeTail.ReplaceAllString(v, "")
 	if !strings.HasPrefix(v, "v") || !semver.IsValid(v) {
+		return ""
+	}
+	if strings.HasPrefix(v, "v0.0.0") {
 		return ""
 	}
 	return v
