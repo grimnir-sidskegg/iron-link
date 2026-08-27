@@ -26,13 +26,6 @@ final daemonBinary =
 /// seq 7) — served back to the daemon over loopback in the override case.
 const updateFixtureDir = '../daemon-go/internal/update/testdata';
 
-/// A CI dispatch build's stamp, `v0.0.0-<short sha>`, as far as semver
-/// accepts it: below every fixture and tag, so the fixture is offered. An
-/// all-digit sha with a leading zero is not a valid prerelease identifier —
-/// the daemon treats such a build as unstamped and never offers anything.
-final _dispatchStamp =
-    RegExp(r'^v0\.0\.0-(?:0|[1-9][0-9]*|[0-9]*[a-f][0-9a-f]*)$');
-
 const shareLink = 'vless://11111111-2222-3333-4444-555555555555@example.com:443'
     '?security=reality&sni=cdn.example.com&pbk=KEY&fp=chrome&sid=0123abcd'
     '&type=tcp#Smoke';
@@ -299,18 +292,18 @@ void main() {
       expect(st.notesUrl, 'https://example.com/iron-link/notes/v1.2.3');
       expect(st.transport, 'direct');
       // The verdict hinges on the daemon's own stamp and clock, neither of
-      // which this harness can pin: an unstamped ("dev") build never
-      // compares versions, an expired manifest (the fixture lapses on
-      // 2027-02-23) is cached as stale but never offered, and a tag build
-      // may already sort at or above the fixture's v1.2.3. Pin the verdict
-      // only where it is determined; the ordering table lives in
-      // internal/update.
+      // which this harness can pin. normalizeCurrentVersion (internal/update)
+      // maps two stamps to the no-compare sentinel, so the fixture is never
+      // offered against them: an unstamped "dev" build, and any CI dispatch
+      // build (v0.0.0-<sha>, kept a sentinel on purpose so tester builds
+      // never downgrade themselves onto a real release). An expired manifest
+      // (the fixture lapses on 2027-02-23) is cached stale and likewise not
+      // offered. A real tag build may sort at or above the fixture's v1.2.3,
+      // so its verdict is left unpinned.
       final current = st.currentVersion;
       final reason = 'current $current, stale ${st.stale}';
-      if (current == 'dev' || st.stale) {
+      if (current == 'dev' || current.startsWith('v0.0.0') || st.stale) {
         expect(st.available, isFalse, reason: reason);
-      } else if (_dispatchStamp.hasMatch(current)) {
-        expect(st.available, isTrue, reason: reason);
       }
       expect(st.downloadState, isEmpty);
     } finally {
