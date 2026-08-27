@@ -732,10 +732,12 @@ class _HomePageState extends State<HomePage> {
             height: 20,
             child: CircularProgressIndicator(strokeWidth: 2, color: t.accent),
           )
+        : isLive
+        // The live node (carrying traffic) gets a pulsing dot; the others a
+        // static radio dot.
+        ? _LivePulse(key: const ValueKey('live-node-mark'), color: circleColor)
         : Icon(
-            isLive
-                ? Icons.play_circle
-                : node.active
+            node.active
                 ? Icons.radio_button_checked
                 : Icons.radio_button_off,
             color: circleColor,
@@ -1032,6 +1034,70 @@ class _HomePageState extends State<HomePage> {
             context,
           ).textTheme.bodySmall?.copyWith(color: t.faint),
         ),
+      ),
+    );
+  }
+}
+
+/// The mark on the live node (the one currently carrying traffic): a dot with a
+/// soft ring that pulses outward while it is on screen. Honours the platform
+/// "reduce motion" setting by holding a steady dot instead.
+class _LivePulse extends StatefulWidget {
+  const _LivePulse({super.key, required this.color});
+
+  final Color color;
+
+  @override
+  State<_LivePulse> createState() => _LivePulseState();
+}
+
+class _LivePulseState extends State<_LivePulse>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  );
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  Widget _dot() => Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+      _c.stop();
+      return SizedBox.square(dimension: 22, child: Center(child: _dot()));
+    }
+    if (!_c.isAnimating) _c.repeat();
+    return SizedBox.square(
+      dimension: 22,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          FadeTransition(
+            opacity: Tween(begin: 0.5, end: 0.0).animate(_c),
+            child: ScaleTransition(
+              scale: Tween(begin: 0.5, end: 1.6).animate(
+                CurvedAnimation(parent: _c, curve: Curves.easeOut),
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: widget.color,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+          ),
+          _dot(),
+        ],
       ),
     );
   }

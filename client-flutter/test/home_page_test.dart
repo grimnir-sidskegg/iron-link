@@ -427,9 +427,9 @@ void main() {
     expect(find.byType(AlertDialog), findsNothing);
     expect(client.switched, ['Tokyo']);
     expect(client.selected, ['n1']);
-    // The status re-read landed the play icon on the new live node.
+    // The status re-read landed the live-node pulse on the new live node.
     expect(session.activeNodeLive, 'Tokyo');
-    expect(find.byIcon(Icons.play_circle), findsOneWidget);
+    expect(find.byKey(const ValueKey('live-node-mark')), findsOneWidget);
   });
 
   testWidgets("a hung node does not block a fast node's latency row",
