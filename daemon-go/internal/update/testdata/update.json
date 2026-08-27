@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "seq": 7,
+  "channel": "stable",
+  "version": "v1.2.3",
+  "min_version": "v1.0.0",
+  "published_at": "2026-08-27T00:00:00Z",
+  "expires_at": "2027-02-23T00:00:00Z",
+  "notes_url": "https://example.com/iron-link/notes/v1.2.3",
+  "artifacts": [
+    {
+      "os": "windows",
+      "arch": "amd64",
+      "kind": "installer",
+      "name": "iron-link-1.2.3-windows-amd64-setup.exe",
+      "size": 12345678,
+      "sha256": "50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c",
+      "urls": [
+        "https://example.com/iron-link/v1.2.3/iron-link-1.2.3-windows-amd64-setup.exe"
+      ]
+    },
+    {
+      "os": "linux",
+      "arch": "amd64",
+      "kind": "none",
+      "name": "",
+      "size": 0,
+      "sha256": "",
+      "urls": []
+    },
+    {
+      "os": "darwin",
+      "arch": "arm64",
+      "kind": "none",
+      "name": "",
+      "size": 0,
+      "sha256": "",
+      "urls": []
+    }
+  ]
+}

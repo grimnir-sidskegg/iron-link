@@ -169,6 +169,48 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # Release path only: emit a DRAFT update manifest next to the installer.
+      # CI fills the artifact facts (name/size/sha256/URL); the owner replaces
+      # the placeholders (seq 0, zero timestamps), signs it offline with
+      # scripts/sign-update.sh and publishes update.json + update.json.minisig
+      # on the "updates" branch. CI never signs.
+      - name: Draft update manifest (tags only)
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          python - "dist/iron-link-${{ steps.ver.outputs.version }}-windows-amd64-setup.exe" "v${{ steps.ver.outputs.version }}" "${{ github.server_url }}/${{ github.repository }}" <<'EOF'
+          import hashlib, json, os, sys
+          path, version, repo = sys.argv[1:4]
+          name = os.path.basename(path)
+          with open(path, "rb") as f:
+              sha256 = hashlib.sha256(f.read()).hexdigest()
+          placeholder = "0001-01-01T00:00:00Z"  # owner fills before signing
+          manifest = {
+              "schema": 1,
+              "seq": 0,  # owner fills: last published seq + 1
+              "channel": "stable",
+              "version": version,
+              "published_at": placeholder,
+              "expires_at": placeholder,
+              "artifacts": [
+                  {
+                      "os": "windows", "arch": "amd64", "kind": "installer",
+                      "name": name, "size": os.path.getsize(path), "sha256": sha256,
+                      "urls": [f"{repo}/releases/download/{version}/{name}"],
+                  },
+                  {"os": "linux", "arch": "amd64", "kind": "none",
+                   "name": "", "size": 0, "sha256": "", "urls": []},
+                  {"os": "darwin", "arch": "arm64", "kind": "none",
+                   "name": "", "size": 0, "sha256": "", "urls": []},
+              ],
+          }
+          with open("dist/update.json.draft", "w") as f:
+              json.dump(manifest, f, indent=2)
+              f.write("\n")
+          with open("dist/update.json.draft") as f:
+              print(f.read())
+          EOF
+
       - name: Assemble bundle
         run: >
           python packaging/assemble.py
@@ -201,3 +243,4 @@ jobs:
             dist/iron-link-*.zip
             dist/iron-link-*.sha256
             dist/iron-link-*-setup.exe
+            dist/update.json.draft

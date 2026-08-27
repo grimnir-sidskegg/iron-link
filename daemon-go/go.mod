@@ -3,10 +3,12 @@ module ironlink/daemon
 go 1.26.4
 
 require (
+	aead.dev/minisign v0.3.0
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/sagernet/sing v0.8.10
 	github.com/sagernet/sing-box v1.13.12
 	github.com/xtls/xray-core v1.260327.0
+	golang.org/x/mod v0.33.0
 	golang.org/x/net v0.52.0
 	golang.org/x/sys v0.42.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -150,7 +152,6 @@ require (
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93 // indirect
-	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/term v0.41.0 // indirect
