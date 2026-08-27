@@ -125,7 +125,7 @@ func serviceLog() (io.Writer, func()) {
 // invoking user's config dir, since install runs in the elevated installer's
 // user context) is baked into the service environment so the LocalSystem
 // service shares profiles/state with the unprivileged client instead of using
-// SYSTEM's %APPDATA%.
+// SYSTEM's %APPDATA%; see serviceEnv for the rest of that environment.
 func installService(args []string) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -153,7 +153,7 @@ func installService(args []string) error {
 			cfg.StartType = mgr.StartAutomatic
 			_ = existing.UpdateConfig(cfg)
 		}
-		return setServiceEnv(serviceName, []string{"IRON_LINK_CONFIG_DIR=" + configDir})
+		return setServiceEnv(serviceName, serviceEnv(configDir))
 	}
 	srv, err := m.CreateService(serviceName, exe, mgr.Config{
 		DisplayName:  serviceDisplayName,
@@ -166,11 +166,24 @@ func installService(args []string) error {
 	}
 	defer srv.Close()
 
-	if err := setServiceEnv(serviceName, []string{"IRON_LINK_CONFIG_DIR=" + configDir}); err != nil {
+	if err := setServiceEnv(serviceName, serviceEnv(configDir)); err != nil {
 		_ = srv.Delete()
 		return fmt.Errorf("set service environment: %w", err)
 	}
 	return nil
+}
+
+// serviceEnv is the per-service environment install bakes: the config dir,
+// plus the update manifest URL override when the installing process
+// carries one (pre-publish testing against a local manifest; see
+// manager_update.go). A re-install without it clears a previously baked
+// override.
+func serviceEnv(configDir string) []string {
+	env := []string{"IRON_LINK_CONFIG_DIR=" + configDir}
+	if v := os.Getenv(updateURLEnv); v != "" {
+		env = append(env, updateURLEnv+"="+v)
+	}
+	return env
 }
 
 func uninstallService() error {

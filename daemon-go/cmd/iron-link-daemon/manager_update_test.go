@@ -14,7 +14,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -24,14 +26,27 @@ import (
 )
 
 // fixtureUpdateTransport serves internal/update's signed manifest fixture
-// for any URL, counting requests — no sockets involved.
+// for any URL, counting requests and recording the URLs asked for — no
+// sockets involved.
 type fixtureUpdateTransport struct {
 	t     *testing.T
 	calls atomic.Int32
+	mu    sync.Mutex
+	urls  []string
+}
+
+// requested returns the URLs fetched so far, in order.
+func (f *fixtureUpdateTransport) requested() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.urls...)
 }
 
 func (f *fixtureUpdateTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	f.calls.Add(1)
+	f.mu.Lock()
+	f.urls = append(f.urls, req.URL.String())
+	f.mu.Unlock()
 	name := "../../internal/update/testdata/update.json"
 	if strings.HasSuffix(req.URL.Path, ".minisig") {
 		name += ".minisig"
@@ -104,6 +119,43 @@ func TestUpdateCheckAutoUpdateGate(t *testing.T) {
 	}
 	if seq, err := update.NewFileSeqStore(m.store.Dir()).LastSeenSeq(); err != nil || seq != 7 {
 		t.Fatalf("persisted seq = %d, %v; want 7 (the fixture's)", seq, err)
+	}
+}
+
+// TestUpdateURLOverrideReachesCheck: the IRON_LINK_UPDATE_URL override
+// installed at startup is what a check fetches from — the manifest and its
+// signature are requested from the override host, never the production
+// mirror — and the verified result is served as usual.
+func TestUpdateURLOverrideReachesCheck(t *testing.T) {
+	m := fixtureManager(t)
+	m.version = "v1.0.0"
+	ft := &fixtureUpdateTransport{t: t}
+	m.updateTransport = ft
+	fixedNow := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	m.updateNow = func() time.Time { return fixedNow }
+
+	const override = "http://198.51.100.1:8000/update.json"
+	var logw bytes.Buffer
+	m.applyUpdateURLOverride(func(name string) string {
+		if name == updateURLEnv {
+			return override
+		}
+		return ""
+	}, &logw)
+	if !strings.Contains(logw.String(), "overridden by "+updateURLEnv) {
+		t.Fatalf("startup log = %q, want the override notice", logw.String())
+	}
+
+	resp := m.Handle(api.Request{Command: api.CmdCheckUpdate, Force: true})
+	if resp.Status != api.StatusUpdateStatus || resp.UpdateStatus == nil {
+		t.Fatalf("check_update: %+v", resp)
+	}
+	if st := resp.UpdateStatus; !st.Available || st.LatestVersion != "v1.2.3" {
+		t.Fatalf("forced status over the override: %+v", st)
+	}
+	want := []string{override, override + ".minisig"}
+	if got := ft.requested(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("requested URLs = %q, want %q", got, want)
 	}
 }
 

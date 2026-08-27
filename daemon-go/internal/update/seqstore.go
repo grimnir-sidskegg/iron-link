@@ -22,8 +22,10 @@ type FileSeqStore struct {
 
 var _ SeqStore = (*FileSeqStore)(nil)
 
-// NewFileSeqStore returns the store rooted at dir (the config root, which
-// the daemon's store has already created).
+// NewFileSeqStore returns the store rooted at dir (the config root). The
+// directory is created on the first write: a daemon that has persisted
+// nothing yet (a fresh install) has no config root, and its first
+// successful check must not fail on the floor write.
 func NewFileSeqStore(dir string) *FileSeqStore { return &FileSeqStore{dir: dir} }
 
 type seqState struct {
@@ -53,6 +55,9 @@ func (s *FileSeqStore) SetLastSeenSeq(seq uint64) error {
 	data, err := json.Marshal(seqState{LastSeenSeq: seq})
 	if err != nil {
 		return err
+	}
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
+		return fmt.Errorf("update: write seq state: %w", err)
 	}
 	tmp, err := os.CreateTemp(s.dir, ".tmp-*")
 	if err != nil {

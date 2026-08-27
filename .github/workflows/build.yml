@@ -213,6 +213,7 @@ jobs:
               "version": version,
               "published_at": placeholder,
               "expires_at": placeholder,
+              "notes_url": f"{repo}/releases/tag/{version}",
               "artifacts": [
                   {
                       "os": "windows", "arch": "amd64", "kind": "installer",

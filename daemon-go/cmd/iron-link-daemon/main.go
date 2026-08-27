@@ -98,6 +98,7 @@ func run(ctx context.Context, logw io.Writer) error {
 	defer l.Close()
 
 	m := newManager(st)
+	m.applyUpdateURLOverride(os.Getenv, logw)
 	hub := ipc.NewHub(m.Snapshot)
 	m.hub = hub
 	srv := ipc.NewServer(ipc.HandlerFunc(m.Handle), hub)

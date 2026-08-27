@@ -14,6 +14,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -28,6 +29,57 @@ import (
 // high-reputation host today; a dedicated mirror is one added line.
 var updateManifestURLs = []string{
 	"https://raw.githubusercontent.com/grimnir-sidskegg/iron-link/updates/update.json",
+}
+
+// updateURLEnv replaces the production mirrors for pre-publish testing: a
+// comma-separated manifest URL list, read once at startup. Plain http:// is
+// accepted under the override ONLY — the minisign signature carries the
+// trust, so a local static server is enough to exercise the whole flow.
+const updateURLEnv = "IRON_LINK_UPDATE_URL"
+
+// parseUpdateURLOverride parses the updateURLEnv value: nil for an unset
+// (or blank) variable, the URL list when every entry is an http(s) URL, and
+// an error — the override is then ignored as a whole — on any entry that
+// is not one.
+func parseUpdateURLOverride(raw string) ([]string, error) {
+	var urls []string
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		u, err := url.Parse(entry)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return nil, fmt.Errorf("%s: %q is not an http(s) URL", updateURLEnv, entry)
+		}
+		urls = append(urls, entry)
+	}
+	return urls, nil
+}
+
+// applyUpdateURLOverride installs the updateURLEnv override at startup;
+// the production list stays in force when the variable is unset or
+// rejected. One line goes to logw whenever the variable is set.
+func (m *manager) applyUpdateURLOverride(getenv func(string) string, logw io.Writer) {
+	urls, err := parseUpdateURLOverride(getenv(updateURLEnv))
+	if err != nil {
+		fmt.Fprintf(logw, "iron-link-daemon: update manifest URL override ignored: %v\n", err)
+		return
+	}
+	if urls == nil {
+		return
+	}
+	m.updateURLs = urls
+	fmt.Fprintf(logw, "iron-link-daemon: update manifest URL overridden by %s\n", updateURLEnv)
+}
+
+// manifestURLs is the list a check fetches from: the startup/test override
+// when one is set, the production mirrors otherwise.
+func (m *manager) manifestURLs() []string {
+	if m.updateURLs != nil {
+		return m.updateURLs
+	}
+	return updateManifestURLs
 }
 
 const (
@@ -166,13 +218,9 @@ func chooseUpdateTransport(settings api.Settings, sess *engine.Session) (http.Ro
 // under mu. Errors are informational only (a blocked endpoint is normal for
 // this daemon) and keep the previous cached result.
 func (m *manager) runUpdateCheck(ctx context.Context, transport http.RoundTripper, mode string) {
-	urls := m.updateURLs
-	if urls == nil {
-		urls = updateManifestURLs
-	}
 	res, err := update.Check(ctx, update.Config{
 		CurrentVersion: m.version,
-		ManifestURLs:   urls,
+		ManifestURLs:   m.manifestURLs(),
 		Transport:      transport,
 		SeqStore:       update.NewFileSeqStore(m.store.Dir()),
 		Now:            m.updateNow, // nil = time.Now

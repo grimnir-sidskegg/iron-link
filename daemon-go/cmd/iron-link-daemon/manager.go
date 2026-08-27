@@ -100,9 +100,10 @@ type manager struct {
 	updateProgressAt       time.Time
 	updateDownloadCancel   context.CancelFunc
 	updateDownloadDone     chan struct{}
-	// updateURLs / updateTransport / updateNow / updateDir are TEST
-	// overrides (zero = the production manifest mirrors / the settings-driven
-	// transport chooser / the real clock / update.UpdatesDir).
+	// updateURLs replaces the production manifest mirrors (the startup
+	// IRON_LINK_UPDATE_URL override, or a test); updateTransport / updateNow
+	// / updateDir are TEST overrides (zero = the settings-driven transport
+	// chooser / the real clock / update.UpdatesDir).
 	updateURLs      []string
 	updateTransport http.RoundTripper
 	updateNow       func() time.Time
