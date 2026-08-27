@@ -361,6 +361,50 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /// Read-only inspector for a group ("Auto" node): its membership and probe
+  /// tuning — what the editor would show, but for any group, including the
+  /// provider groups an edit isn't offered for. get_group carries the true
+  /// membership mode + probe; the resolved member ids come from the list row
+  /// and map to names against the loaded nodes.
+  Future<void> _groupDetails(NodeInfo group) async {
+    final nodes = _nodes, subs = _subs;
+    if (nodes == null || subs == null) return;
+    final spec = await guard(context, () => widget.client.getGroup(group.id));
+    if (spec == null || !mounted) return;
+    final nameById = {for (final n in nodes) n.id: n.name};
+    final memberNames = [
+      for (final id in group.members)
+        if (nameById[id] != null) nameById[id]!,
+    ];
+    String? subscriptionName;
+    final allOfSub = spec['all_of_sub'];
+    if (allOfSub is String && allOfSub.isNotEmpty) {
+      final sub = subs.where((s) => s.id == allOfSub);
+      subscriptionName = sub.isNotEmpty
+          ? (sub.first.name.isNotEmpty ? sub.first.name : sub.first.url)
+          : allOfSub;
+    }
+    int? intervalSec;
+    String? probeUrl;
+    final probe = spec['probe'];
+    if (probe is Map) {
+      final iv = probe['interval_sec'];
+      if (iv is num && iv > 0) intervalSec = iv.toInt();
+      final u = probe['url'];
+      if (u is String && u.isNotEmpty) probeUrl = u;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (context) => GroupDetailsDialog(
+        name: group.name,
+        subscriptionName: subscriptionName,
+        memberNames: memberNames,
+        intervalSec: intervalSec,
+        probeUrl: probeUrl,
+      ),
+    );
+  }
+
   Future<void> _diagnose(NodeInfo node) async {
     // Open the window at once and let it drive the probe: it shows a spinner
     // immediately and swaps in the verdict (or the error) when the daemon
@@ -393,7 +437,7 @@ class _HomePageState extends State<HomePage> {
       case 'edit':
         await _editGroup(node);
       case 'details':
-        await _nodeDetails(node);
+        node.isGroup ? await _groupDetails(node) : await _nodeDetails(node);
       case 'test':
         await _probe([node.name]);
       case 'diagnose':
@@ -838,10 +882,16 @@ class _HomePageState extends State<HomePage> {
                 value: 'select',
                 child: Text('Set as profile default'),
               ),
-              // Only a USER group is editable; a provider group is regenerated
-              // from its subscription on every refresh.
-              if (node.isGroup && node.subId == null)
-                const PopupMenuItem(value: 'edit', child: Text('Edit…')),
+              // A group has no endpoint of its own, but it does carry a
+              // membership + probe: Details… reads them for any group, and
+              // Edit… is offered only for a USER group (a provider group is
+              // regenerated from its subscription on every refresh).
+              if (node.isGroup) ...[
+                const PopupMenuDivider(),
+                const PopupMenuItem(value: 'details', child: Text('Details…')),
+                if (node.subId == null)
+                  const PopupMenuItem(value: 'edit', child: Text('Edit…')),
+              ],
               // A group has no endpoint of its own: latency, diagnosis, and a
               // core pin apply to its members, not to it.
               if (!node.isGroup) ...[

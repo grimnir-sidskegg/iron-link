@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:iron_link_flutter/src/app/session.dart';
 import 'package:iron_link_flutter/src/ipc/client.dart';
+import 'package:iron_link_flutter/src/ui/dialogs.dart';
 import 'package:iron_link_flutter/src/ui/home_page.dart';
 import 'package:iron_link_flutter/src/wire/wire.dart';
 
@@ -161,15 +162,41 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pumpAndSettle();
-    // A group keeps switch/select/remove but has no endpoint to probe, diagnose,
-    // or pin a core to.
+    // A group keeps switch/select/remove and a read-only Details…, but has no
+    // endpoint to probe, diagnose, or pin a core to.
     expect(find.text('Switch traffic here'), findsOneWidget);
     expect(find.text('Set as profile default'), findsOneWidget);
     expect(find.text('Remove'), findsOneWidget);
+    expect(find.text('Details…'), findsOneWidget);
     expect(find.text('Test latency'), findsNothing);
     expect(find.text('Diagnose'), findsNothing);
-    expect(find.text('Details…'), findsNothing);
     expect(find.text('Pin to sing-box'), findsNothing);
+  });
+
+  testWidgets('a group Details… reads its membership and probe via get_group',
+      (tester) async {
+    // autoGroup resolves members n1/n2 → Tokyo/Osaka; get_group's stored spec
+    // carries the probe interval the list row cannot express.
+    final client = _FakeClient(nodes: [tokyo, osaka, autoGroup]);
+    await _pumpHome(tester, client);
+
+    await tester.tap(find.byIcon(Icons.more_vert).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Details…'));
+    await tester.pumpAndSettle();
+
+    // The resolved member names and the stored probe tuning are shown read-only.
+    expect(find.text('members (2)'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byType(GroupDetailsDialog), matching: find.text('Tokyo')),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byType(GroupDetailsDialog), matching: find.text('Osaka')),
+        findsOneWidget);
+    expect(find.text('90s'), findsOneWidget); // the get_group probe interval
+    expect(find.text('Hand-picked nodes'), findsOneWidget);
   });
 
   testWidgets('a node menu opens the read-only details inspector via get_node',
@@ -275,9 +302,9 @@ void main() {
     await tester.tap(find.text('Auto group'));
     await tester.pumpAndSettle();
 
-    // Both modes are available; switch from Pick nodes to Whole subscription
+    // Both modes are available; switch from Pick nodes to the subscription mode
     // (the dropdown pre-selects the only groupable subscription).
-    await tester.tap(find.text('Whole subscription'));
+    await tester.tap(find.text('From a subscription'));
     await tester.pumpAndSettle();
     await tester.enterText(
         find

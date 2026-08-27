@@ -266,6 +266,110 @@ class NodeDetailsDialog extends StatelessWidget {
   }
 }
 
+/// Read-only view of a group ("Auto" node): its membership and probe tuning,
+/// the same facts the group editor shows but non-editable. A provider group
+/// (materialized from a subscription) has no editor, so this is the only way
+/// to inspect it; a user group shows the same facts without opening the editor.
+class GroupDetailsDialog extends StatelessWidget {
+  const GroupDetailsDialog({
+    super.key,
+    required this.name,
+    required this.subscriptionName,
+    required this.memberNames,
+    required this.intervalSec,
+    required this.probeUrl,
+  });
+
+  /// The group's display name.
+  final String name;
+
+  /// The tracked subscription's name when the group follows a whole
+  /// subscription; null for a hand-picked-nodes group.
+  final String? subscriptionName;
+
+  /// The resolved member node names, in list order.
+  final List<String> memberNames;
+
+  /// The re-rank interval in seconds; null = the sing-box default (180 s).
+  final int? intervalSec;
+
+  /// The probe URL; null/empty = the built-in 204 check.
+  final String? probeUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.iron;
+    final membership = subscriptionName != null
+        ? 'Whole subscription — ${subscriptionName!}'
+        : 'Hand-picked nodes';
+    final interval =
+        intervalSec != null ? '${intervalSec}s' : 'default (180s)';
+    final url = (probeUrl != null && probeUrl!.isNotEmpty)
+        ? probeUrl!
+        : 'default (built-in 204 check)';
+
+    Widget row(String label, Widget value) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 130,
+                child: Text(label,
+                    style: TextStyle(
+                        color: t.faint,
+                        fontFamily: kMonoFamily,
+                        fontSize: 12)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: value),
+            ],
+          ),
+        );
+
+    Widget mono(String s) => SelectableText(s,
+        style:
+            TextStyle(color: t.text, fontFamily: kMonoFamily, fontSize: 12));
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.bolt_outlined),
+          const SizedBox(width: 8),
+          Expanded(child: Text(name.isEmpty ? 'Group details' : name)),
+        ],
+      ),
+      content: SizedBox(
+        width: 480,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              row('membership', mono(membership)),
+              row(
+                'members (${memberNames.length})',
+                memberNames.isEmpty
+                    ? mono('none')
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [for (final n in memberNames) mono(n)],
+                      ),
+              ),
+              row('re-rank every', mono(interval)),
+              row('probe url', mono(url)),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        FilledButton(
+            onPressed: () => Navigator.pop(context), child: const Text('Close')),
+      ],
+    );
+  }
+}
+
 /// The one-click update consent (Windows): what the installer run costs the
 /// user — the client is killed and relaunched, the tunnel drops meanwhile,
 /// and UAC asks once. Resolves true on Install.
@@ -383,7 +487,8 @@ class GroupInitial {
 }
 
 /// Prompts to build or edit a user group (an "Auto" node): a name, a membership
-/// mode (a hand-picked set of nodes OR a whole subscription), and optional probe
+/// mode (a hand-picked set of nodes OR every node of one subscription), and
+/// optional probe
 /// tuning (re-rank interval / probe URL). Resolves to the `upsert_group` spec map
 /// ({name, members|all_of_sub, probe?}) — the caller injects the id on edit — or
 /// null on cancel.
@@ -485,7 +590,7 @@ Future<Map<String, Object?>?> promptGroupEditor(
                             value: GroupMode.nodes, label: Text('Pick nodes')),
                         ButtonSegment(
                             value: GroupMode.subscription,
-                            label: Text('Whole subscription')),
+                            label: Text('From a subscription')),
                       ],
                       selected: {mode},
                       onSelectionChanged: (s) => setState(() => mode = s.first),
@@ -502,8 +607,11 @@ Future<Map<String, Object?>?> promptGroupEditor(
                   else
                     DropdownButtonFormField<String>(
                       initialValue: subId,
-                      decoration:
-                          const InputDecoration(labelText: 'Subscription'),
+                      decoration: const InputDecoration(
+                        labelText: 'Subscription',
+                        helperText: 'the group follows every node of the '
+                            'subscription you pick',
+                      ),
                       items: [
                         for (final s in subs)
                           DropdownMenuItem(
