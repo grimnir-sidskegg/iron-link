@@ -202,6 +202,7 @@ class NodeInfo {
     this.protocol = '',
     this.transport = '',
     this.security = '',
+    this.port = 0,
     this.active = false,
     this.eligibleCores = const [],
     this.kind = '',
@@ -216,6 +217,7 @@ class NodeInfo {
         protocol = _str(json['protocol']),
         transport = _str(json['transport']),
         security = _str(json['security']),
+        port = _int(json['port']),
         active = _bool(json['active']),
         eligibleCores = _strList(json['eligible_cores']),
         kind = _str(json['kind']),
@@ -235,6 +237,9 @@ class NodeInfo {
   /// such dimension (e.g. hysteria2 has no stream transport).
   final String transport;
   final String security;
+
+  /// The server port, shown as a badge. Zero for a group row (no endpoint).
+  final int port;
   final bool active;
 
   /// [CoreType] values that can dial this node, in daemon priority order.

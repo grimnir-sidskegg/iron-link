@@ -234,6 +234,10 @@ final responseCases = <String, void Function(Response)>{
     expect(nodes[0].active, isTrue);
     expect(nodes[1].subId, isNull);
     expect(nodes[1].transport, 'xhttp');
+    expect(nodes[0].port, 443);
+    expect(nodes[1].port, 8443);
+    // Leniency: a group row omits the port.
+    expect(nodes[2].port, 0);
     expect(nodes[0].eligibleCores, [CoreType.singBox, CoreType.xray]);
     expect(nodes[1].eligibleCores, [CoreType.xray]);
     // Leniency: a dialable row has no kind/members.

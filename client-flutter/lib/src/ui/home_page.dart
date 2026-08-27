@@ -743,6 +743,10 @@ class _HomePageState extends State<HomePage> {
 
     final card = IronCard(
       padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      // The whole tile is tappable to switch/select this node — the same
+      // action as the leading circle. The circle and the trailing menu button
+      // keep their own taps (a nested button wins its own hit test).
+      onTap: () => _onCircleTap(node),
       child: Row(
         children: [
           IconButton(
@@ -785,6 +789,7 @@ class _HomePageState extends State<HomePage> {
                       if (node.protocol.isNotEmpty) IronKindChip(node.protocol),
                       if (node.transport.isNotEmpty) IronKindChip(node.transport),
                       if (node.security.isNotEmpty) IronKindChip(node.security),
+                      if (node.port != 0) IronKindChip(':${node.port}'),
                       if (node.coreOverride != null)
                         IronKindChip('pin: ${node.coreOverride}', accent: true),
                     ],

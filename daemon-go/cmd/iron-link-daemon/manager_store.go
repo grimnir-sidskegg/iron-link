@@ -148,6 +148,7 @@ func (m *manager) listNodes(req api.Request) api.Response {
 			Protocol:      string(prof.Kind()),
 			Transport:     prof.TransportLabel(),
 			Security:      prof.SecurityLabel(),
+			Port:          prof.ServerPort(),
 			Active:        active,
 			EligibleCores: eligible,
 		})

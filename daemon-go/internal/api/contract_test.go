@@ -312,8 +312,8 @@ var sharedResponses = map[string]Response{
 
 	"profiles": {Status: StatusProfiles, Profiles: []string{"main", "work"}, ActiveProfile: ptr("main")},
 	"nodes": {Status: StatusNodes, Nodes: []NodeInfo{
-		{ID: "3f2a", Name: "Grimnir [VLESS - tcp]", SubID: ptr("s1"), CoreOverride: ptr(CoreXray), Protocol: "vless", Transport: "tcp", Security: "reality", Active: true, EligibleCores: []CoreType{CoreSingBox, CoreXray}},
-		{ID: "9b1c", Name: "osaka", Protocol: "vless", Transport: "xhttp", Security: "reality", Active: false, EligibleCores: []CoreType{CoreXray}},
+		{ID: "3f2a", Name: "Grimnir [VLESS - tcp]", SubID: ptr("s1"), CoreOverride: ptr(CoreXray), Protocol: "vless", Transport: "tcp", Security: "reality", Port: 443, Active: true, EligibleCores: []CoreType{CoreSingBox, CoreXray}},
+		{ID: "9b1c", Name: "osaka", Protocol: "vless", Transport: "xhttp", Security: "reality", Port: 8443, Active: false, EligibleCores: []CoreType{CoreXray}},
 		{ID: "g4d1", Name: "Auto", SubID: ptr("s1"), Active: false, EligibleCores: []CoreType{}, Kind: NodeKindGroup, Members: []string{"3f2a"}},
 	}},
 	"subscriptions": {Status: StatusSubscriptions, Subscriptions: []SubscriptionInfo{

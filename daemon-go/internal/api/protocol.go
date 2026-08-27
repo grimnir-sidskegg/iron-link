@@ -314,7 +314,10 @@ type NodeInfo struct {
 	// may be "" for a protocol that has no such dimension (e.g. hysteria2).
 	Transport string `json:"transport"`
 	Security  string `json:"security"`
-	Active    bool   `json:"active"`
+	// Port is the node's server port, shown as a badge. Zero (omitted) for a
+	// group row, which has no endpoint of its own.
+	Port   uint16 `json:"port,omitempty"`
+	Active bool   `json:"active"`
 	// EligibleCores is which installed cores can dial this node, in priority
 	// order — the daemon-computed capability verdict, so clients never carry
 	// capability tables of their own.
