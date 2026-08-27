@@ -7,11 +7,18 @@ package update
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"golang.org/x/mod/semver"
 )
+
+// errUnsupportedSchema marks a manifest whose schema version this daemon
+// does not understand. Verification still fails on it, but Check maps it
+// to a soft "not an update for this daemon" result — a future schema bump
+// must not read as a failing check on older daemons.
+var errUnsupportedSchema = errors.New("update: unsupported manifest schema")
 
 // SchemaVersion is the manifest schema this daemon understands.
 const SchemaVersion = 1
@@ -66,7 +73,7 @@ func ParseManifest(data []byte) (*Manifest, error) {
 
 func (m *Manifest) validate() error {
 	if m.Schema != SchemaVersion {
-		return fmt.Errorf("update: unsupported manifest schema %d", m.Schema)
+		return fmt.Errorf("%w %d", errUnsupportedSchema, m.Schema)
 	}
 	if !validVersion(m.Version) {
 		return fmt.Errorf("update: invalid manifest version %q", m.Version)
