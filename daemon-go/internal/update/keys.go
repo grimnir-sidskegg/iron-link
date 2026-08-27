@@ -8,20 +8,16 @@ package update
 // key's id as revoked (Check) and refuses current-signed manifests until a
 // build with new keys is installed — never sign a routine release with it.
 //
-// DEV PLACEHOLDERS — both values below belong to development keypairs used
-// by the test suite. They must be replaced with owner-generated production
-// public keys (minisign -G, secret keys kept offline) before the first
-// signed release; the tag build in CI refuses to release while this marker
-// is present. The fixture signature in testdata/ is bound to the dev
-// current key: after replacing the keys, re-sign the fixture with the new
-// current secret key —
+// The fixture signature in testdata/ is bound to a development key, not to
+// the production keys below, so TestFixtureVerifiesWithCompiledKeys skips
+// rather than pinning the chain. To pin it, re-sign the fixture with the
+// production current secret key —
 //
 //	minisign -S -H -s <current.key> -x testdata/update.json.minisig \
 //	  -t "version=v1.2.3 seq=7" -m testdata/update.json
-//
-// — until then TestFixtureVerifiesWithCompiledKeys skips instead of
-// pinning the chain.
 const (
-	publicKeyCurrent  = "RWR20TNV+XbNGRSwWuy1EFlGhpTVO1QQWdBDiE5ILYVX9j07lu2G8Vjk"
-	publicKeyRecovery = "RWTXl9R+z58vGaGjSCoILmdzrv7xLZFcheIBSTN6Pzba3i7XltP08YuE"
+	// key id 30A28671EBF1FF62
+	publicKeyCurrent = "RWRi//HrcYaiMEDXrHFnerX+PqNRGTp67NOU+8wNEXCg6ihJkSEQbvTp"
+	// key id E19837F74716BA24
+	publicKeyRecovery = "RWQkuhZH9zeY4RCxVOqDHDAfc4EYfAXcoc26lNAfD0tRM+BZkRNc2R9t"
 )

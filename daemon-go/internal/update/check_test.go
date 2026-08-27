@@ -543,6 +543,18 @@ func TestCheckFixtureEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read fixture signature: %v", err)
 	}
+	var parsed minisign.Signature
+	if err := parsed.UnmarshalText(sig); err != nil {
+		t.Fatalf("parse fixture signature: %v", err)
+	}
+	keys, err := trustedKeys()
+	if err != nil {
+		t.Fatalf("trustedKeys: %v", err)
+	}
+	if keys[0].pub.ID() != parsed.KeyID {
+		t.Skipf("fixture signed by key %X, compiled-in current key is %X — re-sign testdata/update.json with the current secret key (command in keys.go) to re-pin this test",
+			parsed.KeyID, keys[0].pub.ID())
+	}
 	srv := serveManifest(t, manifest, sig)
 	store := &memSeqStore{}
 	cfg := checkConfig(srv, store, nil, "v1.0.0")
