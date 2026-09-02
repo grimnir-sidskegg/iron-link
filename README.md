@@ -4,8 +4,9 @@ iron-link is a desktop proxy orchestrator for Linux, macOS, and Windows. It runs
 as a single Go daemon that embeds the sing-box and xray cores as libraries, with
 a Flutter desktop client on top; the two talk over a typed IPC.
 
-> Status: pre-alpha. The daemon lives in `daemon-go/`; the client lives in
-> `client-flutter/`.
+> Status: pre-alpha. Verified end-to-end on Linux and Windows; macOS
+> cross-builds but has not been runtime-tested. The daemon lives in
+> `daemon-go/`; the client lives in `client-flutter/`.
 
 ## Overview
 
@@ -20,22 +21,16 @@ connection doctor, and TUN/proxy controls.
 
 ## Features
 
-- **Home** — connection state; a node tree that mixes standalone nodes with
-  subscription groups; single-click connect in either **TUN** (whole-device) or
-  **proxy-only** (SOCKS) mode; switching nodes live; per-node latency probes.
-- **Routing** — a schema-driven editor covering the complete sing-box 1.12
-  condition set. Unknown or advanced keys and logical rules are preserved as-is,
-  and a raw-JSON view is always reachable.
-- **Logs** — the sing-box feed, live, filterable by text and level.
-- **Traffic** — rate and cumulative totals per application, broken down by
-  outcome (direct / proxy / blocked); Linux shows real application icons.
-- **Doctor** — connectivity preflight, IPv4 and IPv6 address-family reachability
-  included, each with a one-click remedy.
-- **Settings** — DNS upstreams and strategy, IP version, LAN bypass, SOCKS port,
-  TUN options, restore-on-start, subscription User-Agent, latency target.
-- **System tray** — connect/disconnect, node switch, show/quit, close-to-tray.
-  Linux is served by a pure-Dart StatusNotifierItem over DBus (no
-  libappindicator); Windows is implemented; macOS is not yet done.
+- **The full configuration surface of both cores.** Structured editors cover
+  what they can and fall back to raw JSON where they run out — nothing the
+  cores accept is out of reach.
+- **Two connection modes** — TUN (whole-device) and proxy-only (local SOCKS) —
+  with live node switching and per-node latency probes.
+- **Routing** over the complete sing-box condition set; unknown and advanced
+  keys survive editing untouched.
+- **Built-in observability** — live core logs, per-application traffic broken
+  down by outcome (direct / proxy / blocked), and a connectivity doctor with
+  one-click remedies.
 
 Supported protocols: **VLESS, Shadowsocks (including SS-2022), VMess, Trojan,
 Hysteria2, TUIC, Hysteria v1, and AnyTLS** — the full set of share-link
@@ -120,86 +115,14 @@ as an auto-start service (see `packaging/`).
 > daemon. A bare restart keeps the stale binary, which then fails the contract
 > against the new client.
 
-## Platform status
-
-| | Linux | macOS | Windows |
-|---|---|---|---|
-| Daemon end-to-end | verified | cross-build only, runtime pending | verified (TUN + xhttp) |
-| Tray | done (SNI/DBus) | pending | implemented (runtime test pending) |
-| Packaging | bundle pending | source-build only (unsigned) | one-click installer (unsigned) |
-
-On GNOME the tray needs the AppIndicator extension; KDE, XFCE, Cinnamon, MATE,
-Budgie, and waybar host it directly.
-
 ## Updates
 
-The daemon checks a signed update manifest about once a day and caches the
-verdict; the client reads it back and shows a banner when a newer version
-exists. The check goes through the running session's tunnel when there is
-one, otherwise over a TUN-exempt direct connection. An unreachable or blocked
-manifest host is logged and otherwise ignored — nothing retries, nothing
-prompts.
-
-- **Windows** — the daemon downloads the installer into
-  `%ProgramData%\iron-link\updates` (a directory only the service writes),
-  verifies it, and the client launches it: one click, one UAC prompt. The
-  installer stops the service, replaces both halves, starts the service again
-  and relaunches the client.
-- **Linux** — notify-only. The package is pacman-managed and is rebuilt from
-  the repository (`makepkg -si`); the banner carries the release notes link.
-- **macOS** — notify-only: the banner and the release notes link.
-
-Three settings govern it, all on by default:
-
-| setting | effect |
-|---|---|
-| `auto_update` | the daily background check; a manual "Check now" works regardless |
-| `update_via_tunnel` | use the running session's outbound for the check and the download |
-| `update_via_direct` | otherwise — or with no session — connect directly, exempt from the TUN |
-
-With both transport settings off nothing is fetched at all, including manual
-checks and downloads. The request carries no identifiers — no version, no
-machine id, no query string — under a static browser User-Agent, on a ~24 h
-cadence with ±10% jitter.
-
-Integrity does not depend on the hosting origin. The manifest is
-minisign-signed with an offline key; the daemon carries two public keys (a
-routine `current` key and a `recovery` key for rotation). A recovery-signed
-manifest retires the `current` key on every daemon that verifies it: from
-then on only recovery-signed manifests are accepted until a build carrying
-new keys is installed. A monotonic `seq`, mirrored in the signature's
-trusted comment, rejects replayed older manifests.
-The installer is pinned by `sha256` and size, and re-hashed right before the
-client launches it.
-
-### Testing against a local manifest
-
-`IRON_LINK_UPDATE_URL` (a comma-separated list) replaces the built-in manifest
-URL; plain `http://` is accepted under the override only. Serve a directory
-holding `update.json` and `update.json.minisig` (signed with
-`scripts/sign-update.sh`) from any static HTTP server and point the daemon at
-it:
-
-- foreground: `IRON_LINK_UPDATE_URL=http://198.51.100.1:8000/update.json ./bin/iron-link-daemon`
-- Windows service: set the variable in the shell that runs
-  `iron-link-daemon.exe install`, then restart the service — `install` bakes
-  it into the service environment next to `IRON_LINK_CONFIG_DIR`. Every
-  `install` rebuilds that environment from its own shell, and the installer
-  runs one on each (re)install, in-app updates included, so repeat the command
-  afterwards or the override is gone
-- Linux service: add the line to `/etc/iron-link/config.env` (the unit's
-  `EnvironmentFile`) and restart the service
-
-### Release procedure (maintainer)
-
-1. `git tag vX.Y.Z && git push origin vX.Y.Z` — CI builds, generates the
-   release notes from the commit log, and attaches `update.json.draft`.
-2. Review the draft, rename it to `update.json`, and sign:
-   `scripts/sign-update.sh update.json <current.key>`. The script header
-   documents what to review and the checks it enforces.
-3. Commit the signed pair to `updates/` on `main` and push (the script
-   prints the commands); the publish-update workflow verifies it and
-   mirrors it to the release assets and the legacy `updates` branch.
+The daemon checks a minisign-signed update manifest about once a day: the
+signing key lives offline, a monotonic counter rejects rollbacks, and the
+request carries no identifiers. Windows updates install in one click;
+Linux and macOS are notify-only. The full design — behavior, integrity
+model, local testing, release procedure — is in
+[`UPDATES.md`](UPDATES.md).
 
 ## Running TUN — operational notes
 
@@ -232,11 +155,9 @@ scripts/check.sh        # go vet + go test (incl. the Go wire contract) + 3-OS c
 cd client-flutter && flutter analyze && flutter test
 ```
 
-`contract/fixtures/` pins the wire contract. Any protocol change has to update
-those fixtures together with both language tables — Go in
-`daemon-go/internal/api/contract_test.go`, Dart in
-`client-flutter/test/contract_test.dart`. The live TUN and real-node tests are
-gated behind root plus environment variables and skip themselves otherwise.
+`contract/fixtures/` pins the wire contract, asserted by both language suites.
+The live TUN and real-node tests are gated behind root plus environment
+variables and skip themselves otherwise.
 
 ## Security
 
