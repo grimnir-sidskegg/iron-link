@@ -6,12 +6,15 @@
 #   scripts/sign-update.sh <update.json> <minisign-secret-key>
 #
 # Draft convention: CI (build.yml, tag builds) emits update.json.draft with
-# the artifact facts filled in and the owner-only fields left as
-# placeholders — "seq": 0 and published_at/expires_at set to
-# "0001-01-01T00:00:00Z". Before signing, rename the draft to update.json
-# and replace the placeholders: seq = last published seq + 1 (never reuse or
-# go back — clients reject a seq they have already seen), published_at = now,
-# expires_at = published_at + ~180 days. This script refuses placeholders.
+# the artifact facts, timestamps, and a seq HINT (published manifest + 1)
+# filled in. The hint can be wrong — a stale CDN read, a 404 on a fresh
+# mirror — so the authority on seq is the counter file kept NEXT TO THE
+# SECRET KEY: this script refuses to sign any seq other than counter + 1
+# (never reuse or go back — clients reject a lower seq, and an equal seq
+# would make two different manifests both valid). Review the draft before
+# signing — version matches the tag you pushed, the artifact URL points at
+# this repository's release, and the sha256 matches a locally downloaded
+# installer — then rename it to update.json and sign.
 #
 # Signing is prehashed (-H) and the trusted comment mirrors the version and
 # seq of the JSON; the daemon rejects a signature whose comment does not
@@ -53,6 +56,23 @@ if [[ "$published_at" == "$placeholder" || "$expires_at" == "$placeholder" ]]; t
   exit 1
 fi
 
+# The seq authority: a counter file beside the secret key records the last
+# seq actually signed. CI's draft seq is only a hint (it reads the published
+# manifest over a CDN and can be stale); the counter cannot be. First run
+# bootstraps the file from the manifest being signed.
+counter="$(dirname "$seckey")/iron-link-update.seq"
+if [[ -f "$counter" ]]; then
+  last_signed=$(<"$counter")
+  expected=$((last_signed + 1))
+  if [[ "$seq" -ne "$expected" ]]; then
+    echo "error: manifest seq $seq, but the signing counter ($counter) says the next seq is $expected" >&2
+    echo "fix the manifest — or, if the counter itself is wrong, edit the file deliberately" >&2
+    exit 1
+  fi
+else
+  echo "note: no signing counter at $counter — bootstrapping it from this manifest (seq $seq)"
+fi
+
 sigfile="$manifest.minisig"
 trusted="version=$version seq=$seq"
 minisign -S -H -s "$seckey" -x "$sigfile" \
@@ -69,17 +89,19 @@ manifest_abs=$(cd "$(dirname "$manifest")" && pwd)/$(basename "$manifest")
   IRON_LINK_UPDATE_SIG="$manifest_abs.minisig" \
   go test -count=1 -run '^TestVerifySignedFile$' -v ./internal/update)
 
+echo "$seq" > "$counter"
+
 cat <<EOF
 
-Verified against the compiled-in keys. To publish (not executed):
+Verified against the compiled-in keys; signing counter now $seq. To publish
+(not executed):
 
-  # first publish only — create the orphan updates branch:
-  #   git worktree add --orphan -b updates ../iron-link-updates
-  git worktree add ../iron-link-updates updates
-  cp "$manifest_abs" "$manifest_abs.minisig" ../iron-link-updates/
-  cd ../iron-link-updates
-  git add update.json update.json.minisig
+  cp "$manifest_abs" "$manifest_abs.minisig" "$repo_root/updates/"
+  cd "$repo_root"
+  git add updates/update.json updates/update.json.minisig
   git commit -m "update manifest $version seq $seq"
-  git push origin updates
-  cd - && git worktree remove ../iron-link-updates
+  git push origin main
+
+The publish-update workflow then verifies the pair, uploads it to the
+$version release assets, and mirrors it to the legacy updates branch.
 EOF

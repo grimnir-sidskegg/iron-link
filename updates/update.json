@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "seq": 1,
+  "channel": "stable",
+  "version": "v0.2.0",
+  "published_at": "2026-08-27T12:00:00Z",
+  "expires_at": "2027-02-23T12:00:00Z",
+  "notes_url": "https://github.com/grimnir-sidskegg/iron-link/releases/tag/v0.2.0",
+  "artifacts": [
+    {
+      "os": "windows",
+      "arch": "amd64",
+      "kind": "installer",
+      "name": "iron-link-0.2.0-windows-amd64-setup.exe",
+      "size": 24213399,
+      "sha256": "905358db1ece51e8304ca041686dd44e125cc8feb75cb9e0370e31c4e1769a43",
+      "urls": [
+        "https://github.com/grimnir-sidskegg/iron-link/releases/download/v0.2.0/iron-link-0.2.0-windows-amd64-setup.exe"
+      ]
+    },
+    {
+      "os": "linux",
+      "arch": "amd64",
+      "kind": "none",
+      "name": "",
+      "size": 0,
+      "sha256": "",
+      "urls": []
+    },
+    {
+      "os": "darwin",
+      "arch": "arm64",
+      "kind": "none",
+      "name": "",
+      "size": 0,
+      "sha256": "",
+      "urls": []
+    }
+  ]
+}

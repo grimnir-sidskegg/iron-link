@@ -4,3 +4,5 @@
 # verification. Keep these bytes exactly as committed on every platform.
 daemon-go/internal/update/testdata/** -text
 *.minisig -text
+# The published manifest itself: signed byte-for-byte, same rule.
+updates/** -text

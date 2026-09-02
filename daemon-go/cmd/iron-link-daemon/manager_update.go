@@ -25,10 +25,15 @@ import (
 )
 
 // updateManifestURLs are the production manifest mirrors, tried in order
-// (the detached signature sits at "<url>.minisig" beside each). One generic
-// high-reputation host today; a dedicated mirror is one added line.
+// (the detached signature sits at "<url>.minisig" beside each). The signed
+// pair is committed to updates/ on main; the publish-update workflow copies
+// it onto the matching GitHub release, which is what the second URL serves.
+// Older daemons carry the retired "updates" branch URL — the same workflow
+// mirrors the pair there so they keep seeing releases. A dedicated mirror
+// is one added line.
 var updateManifestURLs = []string{
-	"https://raw.githubusercontent.com/grimnir-sidskegg/iron-link/updates/update.json",
+	"https://raw.githubusercontent.com/grimnir-sidskegg/iron-link/main/updates/update.json",
+	"https://github.com/grimnir-sidskegg/iron-link/releases/latest/download/update.json",
 }
 
 // updateURLEnv replaces the production mirrors for pre-publish testing: a

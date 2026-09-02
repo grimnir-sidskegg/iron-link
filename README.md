@@ -192,18 +192,14 @@ it:
 
 ### Release procedure (maintainer)
 
-1. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`. CI builds the
-   installer and attaches `update.json.draft` with the artifact facts and the
-   release notes link.
-2. Rename the draft to `update.json`; fill in `seq` (last published + 1),
-   `published_at`, and `expires_at` (about 180 days out).
-3. `scripts/sign-update.sh update.json <current.key>` — signs the manifest and
-   verifies it against the compiled-in keys. Sign with the `current` key
-   only; the `recovery` key is for retiring a lost or compromised `current`
-   key, and a manifest signed with it must carry a `seq` above anything the
-   old key may have published.
-4. Push `update.json` and `update.json.minisig` to the orphan `updates` branch
-   (the script prints the commands).
+1. `git tag vX.Y.Z && git push origin vX.Y.Z` — CI builds, generates the
+   release notes from the commit log, and attaches `update.json.draft`.
+2. Review the draft, rename it to `update.json`, and sign:
+   `scripts/sign-update.sh update.json <current.key>`. The script header
+   documents what to review and the checks it enforces.
+3. Commit the signed pair to `updates/` on `main` and push (the script
+   prints the commands); the publish-update workflow verifies it and
+   mirrors it to the release assets and the legacy `updates` branch.
 
 ## Running TUN — operational notes
 

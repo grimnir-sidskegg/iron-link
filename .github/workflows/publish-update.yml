@@ -1,0 +1,111 @@
+name: Publish update manifest
+
+# Runs when the signed update manifest lands on main (updates/update.json +
+# update.json.minisig, signed offline — see scripts/sign-update.sh). The job
+# is a gate first and a mirror second:
+#
+#   1. verify the pair with the daemon's own verifier against the compiled-in
+#      public keys — a corrupted, mis-signed, or edited-after-signing pair
+#      turns into red CI here instead of a silent client-visible failure;
+#   2. refuse a seq that does not increase over the previous committed
+#      manifest (clients treat a lower seq as a rollback attack, and an equal
+#      seq would create two permanently-valid views);
+#   3. upload the verified pair as assets of the matching GitHub release, so
+#      releases/latest/download serves it (the daemon's fallback mirror URL);
+#   4. mirror it to the legacy "updates" branch — v0.2.0 daemons have only
+#      that branch URL compiled in and check fail-soft, so retiring the
+#      branch would silently strand them.
+#
+# The mirror/upload steps only ever copy bytes that passed step 1; a
+# compromised workflow can at worst refuse to publish, never forge.
+#
+# Third-party actions are pinned by commit SHA — same rationale as build.yml.
+
+on:
+  push:
+    branches: [main]
+    paths: ["updates/**"]
+
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # upload release assets + push the mirror branch
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 2 # HEAD^ carries the previous manifest for the seq gate
+
+      - name: Install Go toolchain
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: daemon-go/go.mod
+          cache-dependency-path: daemon-go/go.sum
+
+      - name: Verify signature against the compiled-in keys
+        working-directory: daemon-go
+        run: |
+          IRON_LINK_UPDATE_MANIFEST="$GITHUB_WORKSPACE/updates/update.json" \
+          IRON_LINK_UPDATE_SIG="$GITHUB_WORKSPACE/updates/update.json.minisig" \
+          go test -count=1 -run '^TestVerifySignedFile$' -v ./internal/update
+
+      - name: Refuse a non-increasing seq
+        run: |
+          new=$(jq -er .seq updates/update.json)
+          if old=$(git show HEAD^:updates/update.json 2>/dev/null | jq -er .seq); then
+            if [ "$new" -le "$old" ]; then
+              echo "seq $new does not increase over the previous manifest ($old)" >&2
+              echo "clients reject a lower seq and an equal seq splits the view — bump it" >&2
+              exit 1
+            fi
+          else
+            echo "no previous manifest at HEAD^ — first publish, seq gate skipped"
+          fi
+
+      # GitHub release assets are immutable by name: delete a stale
+      # update.json/update.json.minisig first, then upload the new pair. The
+      # release for the manifest's version must already exist (the tag build
+      # created it) — a typo'd version fails loudly here.
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(jq -er .version updates/update.json)
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json")
+          release=$(curl -sf "${auth[@]}" "${api}/releases/tags/${version}")
+          release_id=$(jq -er .id <<<"$release")
+          for name in update.json update.json.minisig; do
+            asset_id=$(jq -er --arg n "$name" \
+              '.assets[] | select(.name == $n) | .id' <<<"$release" || true)
+            if [ -n "$asset_id" ]; then
+              curl -sf -X DELETE "${auth[@]}" "${api}/releases/assets/${asset_id}"
+            fi
+            curl -sf -X POST "${auth[@]}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@updates/${name}" \
+              "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?name=${name}" \
+              -o /dev/null
+            echo "uploaded ${name} to release ${version}"
+          done
+
+      - name: Mirror to the legacy updates branch
+        run: |
+          version=$(jq -er .version updates/update.json)
+          seq=$(jq -er .seq updates/update.json)
+          git fetch origin updates
+          git worktree add --detach ../updates-mirror origin/updates
+          cp updates/update.json updates/update.json.minisig ../updates-mirror/
+          cd ../updates-mirror
+          git add update.json update.json.minisig
+          if git diff --cached --quiet; then
+            echo "legacy branch already carries this manifest — nothing to mirror"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "update manifest ${version} seq ${seq}"
+          git push origin HEAD:updates
