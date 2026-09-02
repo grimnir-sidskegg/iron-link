@@ -1,8 +1,9 @@
 #!/bin/sh
 # iron-link installer (Linux / macOS). Copies the self-contained daemon onto
 # PATH. The daemon embeds its cores — there is no cores/ dir. Service
-# registration is not wired up yet; start the daemon manually. The Flutter GUI
-# ships separately (build it from client-flutter/ for now).
+# registration is not wired up here; start the daemon manually. This script
+# installs the DAEMON only — the Linux bundle's gui/ runs in place, or use
+# the binary Arch recipe (packaging/arch/PKGBUILD-bin) for a full install.
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)

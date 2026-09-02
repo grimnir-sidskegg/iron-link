@@ -16,8 +16,10 @@ prompts.
   verifies it, and the client launches it: one click, one UAC prompt. The
   installer stops the service, replaces both halves, starts the service again
   and relaunches the client.
-- **Linux** — notify-only. The package is pacman-managed and is rebuilt from
-  the repository (`makepkg -si`); the banner carries the release notes link.
+- **Linux** — notify-only: the package is pacman-managed, so the app never
+  replaces it. Update from the release tarball via the binary Arch recipe
+  (`packaging/arch/PKGBUILD-bin`) or rebuild from source (`makepkg -si`);
+  the banner carries the release notes link.
 - **macOS** — notify-only: the banner and the release notes link.
 
 Three settings govern it, all on by default:

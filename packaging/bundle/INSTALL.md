@@ -5,10 +5,12 @@ cores to manage (`sing-box` and `xray` are embedded inside it as libraries):
 
 - `iron-link-daemon` — the privileged background service (Go; embeds the cores).
 
-The desktop **GUI is the Flutter client**, shipped separately: on Windows as
-the Inno Setup installer (`iron-link-*-setup.exe`, which bundles this daemon +
-the app); a Flutter bundle for Linux/macOS is a packaging follow-up — build it
-from `client-flutter/` for now (`flutter build <linux|macos> --release`).
+The desktop **GUI is the Flutter client**: on Windows it ships as the Inno
+Setup installer (`iron-link-*-setup.exe`, which bundles this daemon + the
+app); the Linux bundle carries it as `gui/` (run `gui/iron_link_flutter` in
+place, or install the whole thing with the binary Arch recipe —
+`packaging/arch/PKGBUILD-bin` in the repository); on macOS build it from
+`client-flutter/` (`flutter build macos --release`).
 
 ## Quick try (no install)
 

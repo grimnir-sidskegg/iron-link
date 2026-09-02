@@ -3,12 +3,18 @@
 
 The bundle is the self-contained Go daemon (sing-box and xray are embedded
 libraries, so there is no cores/ directory and nothing to fetch) plus the
-per-OS install docs/script. Produces `<bundle-name>.{tar.gz,zip}` plus a
-`.sha256`. The GUI ships separately: on Windows as the Inno Setup installer
-(daemon + Flutter client); a Flutter bundle for Linux/macOS is a follow-up.
+per-OS install docs/script and the license texts. Produces
+`<bundle-name>.{tar.gz,zip}` plus a `.sha256`.
+
+The GUI: on Windows it ships as the Inno Setup installer (daemon + Flutter
+client); on Linux pass `--flutter-dir` with the built Flutter bundle and it
+lands in the archive as `gui/`, together with the systemd unit, the desktop
+entry, and the icon — everything a binary package needs. macOS stays
+daemon-only for now.
 
   python3 packaging/assemble.py --target linux-amd64 --version 0.1.0 \
       --daemon-bin daemon-go/bin/iron-link-daemon \
+      --flutter-dir client-flutter/build/linux/x64/release/bundle \
       --staging dist --archive tar.gz
 
 Pure stdlib; runs unchanged on every CI runner.
@@ -37,6 +43,7 @@ def main():
     ap.add_argument("--target", required=True)
     ap.add_argument("--version", required=True)
     ap.add_argument("--daemon-bin", required=True, help="built Go daemon binary")
+    ap.add_argument("--flutter-dir", help="built Flutter bundle dir (Linux)")
     ap.add_argument("--staging", required=True, help="output dir")
     ap.add_argument("--archive", required=True, choices=["tar.gz", "zip"])
     args = ap.parse_args()
@@ -52,6 +59,34 @@ def main():
         sys.exit(f"missing built daemon: {args.daemon_bin}")
     copy_in(bundle, args.daemon_bin, "iron-link-daemon" + exe)
     print(f"  + iron-link-daemon{exe}")
+
+    # The Flutter GUI bundle (Linux): the exe + its lib/ and data/ trees.
+    if args.flutter_dir:
+        if not os.path.isdir(args.flutter_dir):
+            sys.exit(f"missing Flutter bundle dir: {args.flutter_dir}")
+        shutil.copytree(args.flutter_dir, os.path.join(bundle, "gui"))
+        print("  + gui/")
+
+    # Linux integration files, so a binary package (or a careful human) can
+    # install straight from this archive: systemd unit, desktop entry, icon.
+    if args.target.startswith("linux"):
+        os.makedirs(os.path.join(bundle, "systemd"), exist_ok=True)
+        shutil.copy2(
+            os.path.join(HERE, "systemd", "iron-link.service"),
+            os.path.join(bundle, "systemd", "iron-link.service"),
+        )
+        copy_in(bundle, os.path.join(HERE, "arch", "iron-link.desktop"))
+        copy_in(
+            bundle,
+            os.path.join(ROOT, "client-flutter", "assets", "logo-emblem.png"),
+            "iron-link.png",
+        )
+        print("  + systemd/iron-link.service, iron-link.desktop, iron-link.png")
+
+    # License texts — the daemon embeds GPL/MPL cores, so every binary
+    # distribution carries them.
+    copy_in(bundle, os.path.join(ROOT, "LICENSE"))
+    copy_in(bundle, os.path.join(ROOT, "THIRD_PARTY_LICENSES"))
 
     # Bundle docs + installer for this OS.
     copy_in(bundle, os.path.join(HERE, "bundle", "INSTALL.md"))

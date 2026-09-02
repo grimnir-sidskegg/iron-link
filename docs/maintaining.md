@@ -59,8 +59,14 @@ committing the manifest pair to `updates/` on `main` — is in
 - **Windows** — the Inno Setup installer
   (`packaging/windows/iron-link.iss`) is built by CI; it carries both halves
   and registers the daemon as an auto-start service.
-- **Arch Linux** — `packaging/arch/PKGBUILD` builds from `main` (VCS-style,
-  `sha256sums=('SKIP')`). Run `makepkg -si` from a copy of `packaging/arch/`
-  outside the working tree: makepkg rewrites the `pkgver=` line in place and
-  dirties the checkout otherwise.
+- **Linux** — the release tarball is the canonical artifact: daemon +
+  `gui/` (the Flutter bundle) + systemd unit + desktop entry + icon +
+  license texts, assembled by the CI Linux leg. Any package format wraps
+  it.
+- **Arch Linux** — two recipes in `packaging/arch/`:
+  `PKGBUILD` builds from `main` sources (needs the Go/Flutter toolchain);
+  `PKGBUILD-bin` repacks the release tarball (needs only base-devel; bump
+  `pkgver`, then `makepkg -si -p PKGBUILD-bin`). Run makepkg from a copy of
+  `packaging/arch/` outside the working tree: it rewrites the `pkgver=`
+  line in place and dirties the checkout otherwise.
 - **macOS** — source build only.
