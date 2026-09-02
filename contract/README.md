@@ -3,8 +3,7 @@
 The canonical JSON frames of the iron-link control protocol (framed JSON over
 IPC: 4-byte big-endian length prefix + body). They are the cross-language
 contract between the Go daemon and the Flutter client, enforced by TWO test
-suites that must both stay green (see `docs/PASSPORT.md`, card 7 + the wire
-appendix):
+suites that must both stay green:
 
 - Go: `daemon-go/internal/api/contract_test.go`
   (`cd daemon-go && go test ./internal/api/`)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local verification gate for the Go daemon (docs/PASSPORT.md, card 10).
+# Local verification gate for the Go daemon (docs/maintaining.md).
 # Run this before committing daemon-go or wire changes:
 #   scripts/check.sh
 #

@@ -122,7 +122,7 @@ signing key lives offline, a monotonic counter rejects rollbacks, and the
 request carries no identifiers. Windows updates install in one click;
 Linux and macOS are notify-only. The full design — behavior, integrity
 model, local testing, release procedure — is in
-[`UPDATES.md`](UPDATES.md).
+[`docs/updates.md`](docs/updates.md).
 
 ## Running TUN — operational notes
 
@@ -157,7 +157,8 @@ cd client-flutter && flutter analyze && flutter test
 
 `contract/fixtures/` pins the wire contract, asserted by both language suites.
 The live TUN and real-node tests are gated behind root plus environment
-variables and skip themselves otherwise.
+variables and skip themselves otherwise. Build, CI, and release process notes
+live in [`docs/maintaining.md`](docs/maintaining.md).
 
 ## Security
 

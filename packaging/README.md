@@ -1,7 +1,7 @@
 # packaging
 
-Release tooling driven by `.github/workflows/build.yml` (builds on every push
-to `main` + manual dispatch; the release step fires on `v*` tags). Each run
+Release tooling driven by `.github/workflows/build.yml` (manual dispatch is
+the normal path; the release step fires on `v*` tags). Each run
 builds the Go daemon on Linux/macOS/Windows and produces a self-contained
 per-OS bundle. On Windows it additionally builds the Flutter client and wraps
 it together with the daemon into a single-file Inno Setup installer
@@ -9,7 +9,7 @@ it together with the daemon into a single-file Inno Setup installer
 
 There is no core fetching: `sing-box` and `xray` are **embedded as libraries**
 inside the Go daemon (`daemon-go/`), pinned in its `go.mod` (never float
-them — see `docs/PASSPORT.md`, Design rationale). The old
+them). The old
 `cores.lock`/`fetch_cores.py` supply-chain machinery went with the spawning
 Rust daemon (removed earlier; the Rust front-ends followed 2026-06-13).
 

@@ -15,8 +15,6 @@ packaging/arch/src/
 # local agent guide — not published
 AGENTS.md
 
-# design docs — kept local, not published (README is the only public doc)
-/docs/
 CLAUDE.md
 
 # Claude Code local config — never published

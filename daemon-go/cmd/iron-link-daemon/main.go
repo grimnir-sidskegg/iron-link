@@ -5,7 +5,7 @@
 // SIGTERM); as a WINDOWS SERVICE (launched by the SCM — see service_windows.go);
 // or as a one-shot install/uninstall/start/stop subcommand (Windows only).
 // Build with `-tags "with_gvisor,with_utls,with_clash_api,with_quic"` (TUN
-// stack + native REALITY + QUIC outbounds). See docs/PASSPORT.md.
+// stack + native REALITY + QUIC outbounds).
 package main
 
 import (
