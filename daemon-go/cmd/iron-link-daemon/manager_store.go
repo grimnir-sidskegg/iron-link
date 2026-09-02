@@ -492,8 +492,7 @@ func (m *manager) addSubscription(req api.Request) api.Response {
 			return api.Response{}, err
 		}
 		// The initial fetch: its failure does NOT undo the add — the
-		// subscription stays stored (same split semantics as the Rust client
-		// blocks) and the outcome is reported.
+		// subscription stays stored and the outcome is reported.
 		results := subscription.Refresh(context.Background(), p, subID, m.subscriptionUA())
 		return api.Response{
 			Status:    api.StatusRefreshed,
@@ -641,9 +640,9 @@ func (m *manager) getRouting(req api.Request) api.Response {
 	return api.Response{Status: api.StatusRoutingConfig, RoutingConfig: raw}
 }
 
-// upsertRouting mirrors the Rust client block: keyed on the config's id — an
-// existing id replaces that config IN PLACE (the slot keeps its id, so the
-// active selection stays valid across an edit), a new/absent id adds.
+// upsertRouting is keyed on the config's id — an existing id replaces that
+// config IN PLACE (the slot keeps its id, so the active selection stays
+// valid across an edit), a new/absent id adds.
 func (m *manager) upsertRouting(req api.Request) api.Response {
 	if len(req.RoutingConfig) == 0 {
 		return errResp("upsert_routing requires a routing_config payload")

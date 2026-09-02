@@ -9,7 +9,7 @@
 package api
 
 // CoreRole is the part a core plays in the active session. JSON: bare PascalCase
-// ("Proxy"/"Tun"/"Dpi"), matching the Rust enum's serde encoding.
+// strings ("Proxy"/"Tun"/"Dpi").
 //
 //	Proxy = the SOCKS/HTTP outbound core (xray)
 //	Tun   = the privileged tunnel / dispatcher core (sing-box)
@@ -41,10 +41,8 @@ const (
 
 // CoreEntry describes one embedded core in the session.
 //
-// It REPLACES the Rust `RunningEntry{pid,uptime,role}`: in the embedded model
-// the cores are in-process (one daemon pid), so there is no per-core pid —
-// identity is the logical Role + State. The Rust side
-// is updated to this shape at G1 step 5.
+// The cores are in-process (one daemon pid), so there is no per-core pid —
+// identity is the logical Role + State.
 type CoreEntry struct {
 	Role       CoreRole  `json:"role"`
 	State      CoreState `json:"state"`
@@ -52,12 +50,11 @@ type CoreEntry struct {
 }
 
 // PersistedEntry is the activation INTENT — the high-level NAMES + the tun flag,
-// never paths/argv (mirrors the Rust `PersistedEntry`). A poisoned record can at
-// worst name a different profile/node; the daemon re-plans on restore.
+// never paths/argv. A poisoned record can at worst name a different
+// profile/node; the daemon re-plans on restore.
 //
-// Profile/Node/Routing are nullable (serde `Option<String>`) and serialize as
-// JSON null when absent (no omitempty — the field is always present). Tun is
-// always a bool.
+// Profile/Node/Routing are nullable and serialize as JSON null when absent
+// (no omitempty — the field is always present). Tun is always a bool.
 type PersistedEntry struct {
 	Profile *string `json:"profile"`
 	Node    *string `json:"node"`

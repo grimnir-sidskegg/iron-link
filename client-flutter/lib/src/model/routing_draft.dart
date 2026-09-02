@@ -1,12 +1,12 @@
-/// The routing-form draft model (schema-driven) — the pure half of the former
-/// egui editor; the rendering lives under `ui/`.
+/// The routing-form draft model (schema-driven) — the pure half of the
+/// routing editor; the rendering lives under `ui/`.
 ///
-/// One deliberate deviation from the egui reference: array-kind conditions
-/// are edited as a list of per-item drafts ([CondItem]) rather than one
-/// comma-joined text. The reference re-splits the joined text on commas AND
-/// spaces, corrupting any value with an internal space (e.g. a Windows
-/// `process_path` like `C:\Program Files\...`); here items round-trip
-/// verbatim and are never re-tokenized.
+/// One deliberate design point: array-kind conditions are edited as a list
+/// of per-item drafts ([CondItem]) rather than one comma-joined text. A
+/// joined text re-split on commas AND spaces corrupts any value with an
+/// internal space (e.g. a Windows `process_path` like
+/// `C:\Program Files\...`); here items round-trip verbatim and are never
+/// re-tokenized.
 ///
 /// The drafts operate on the routing config as an opaque JSON document —
 /// there is NO typed routing model on the client side. Forms render from a
@@ -50,8 +50,8 @@ final class RoutingDraftError implements Exception {
   String toString() => message;
 }
 
-/// Re-throws a [RoutingDraftError] with location context prepended — the
-/// Dart spelling of the Rust `map_err(|e| format!("rule {n}: {e}"))` chains.
+/// Re-throws a [RoutingDraftError] with location context prepended, so a
+/// deep validation failure still names its rule ("rule 3: ...").
 T _prefixed<T>(String prefix, T Function() body) {
   try {
     return body();
@@ -180,7 +180,7 @@ final class CondDraft {
   /// validating ports/numbers; throws [RoutingDraftError].
   ///
   /// All numeric parses pin radix 10: a bare `int.tryParse` would accept
-  /// "0x10", which the Rust editor rejects.
+  /// "0x10", which is not a valid port or number here.
   Object? toValue() {
     switch (kind) {
       case 'bool':
@@ -309,8 +309,8 @@ final class RuleSetDraft {
   String detour;
 }
 
-/// The routing editor's draft state — drafts over a JSON document (the Rust
-/// `RoutingEditor` minus the egui rendering).
+/// The routing editor's draft state — drafts over a JSON document, no
+/// rendering concerns.
 final class RoutingDraft {
   /// A blank draft for a NEW routing config (no id; default target Direct;
   /// empty rules + rule-sets).

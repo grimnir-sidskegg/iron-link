@@ -4,9 +4,9 @@ part of 'wire.dart';
 ///
 /// Null-vs-omitted follows the fixtures exactly: the session verbs
 /// (activate / stop / test_latency) carry their optional fields as
-/// EXPLICIT nulls — the Rust serializer's shape, pinned by
-/// `contract/fixtures/requests/`; the store verbs OMIT absent optionals —
-/// the shape pinned by `contract/fixtures/go/requests/`.
+/// EXPLICIT nulls — the shape pinned by `contract/fixtures/requests/`;
+/// the store verbs OMIT absent optionals — the shape pinned by
+/// `contract/fixtures/go/requests/`.
 sealed class Request {
   const Request();
 

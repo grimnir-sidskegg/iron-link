@@ -18,8 +18,7 @@ const pipeName = `\\.\pipe\iron-link`
 // unprivileged; the default pipe DACL would deny the interactive user and force
 // them to elevate too. So: SYSTEM (SY) and Administrators (BA) get full control
 // (GA); the interactive logged-on user (IU) gets read+write (GR|GW) to connect.
-// This is the Windows analogue of the Unix 0600 socket and mirrors the existing
-// Rust daemon's DACL.
+// This is the Windows analogue of the Unix 0600 socket.
 const pipeSDDL = "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)"
 
 // DefaultAddr is the control pipe name (override with IRON_LINK_SOCKET).

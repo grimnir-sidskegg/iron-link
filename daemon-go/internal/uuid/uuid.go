@@ -1,5 +1,5 @@
 // Package uuid generates random (v4) UUID strings — node / subscription /
-// routing identity, matching the Rust uuid::Uuid::new_v4 format. Kept tiny
+// routing identity, in the canonical lowercase-hyphenated format. Kept tiny
 // and dependency-free on purpose.
 package uuid
 

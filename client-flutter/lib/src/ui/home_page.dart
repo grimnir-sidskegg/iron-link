@@ -290,8 +290,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   /// One Add for both kinds: http(s):// URLs are fetched as a subscription,
-  /// anything else is parsed as a single node. (This is how the old Rust CLI
-  /// took a link — no node-vs-sub picker.)
+  /// anything else is parsed as a single node — no node-vs-sub picker.
   Future<void> _add() async {
     final input = await promptAdd(context);
     if (input == null || input.isEmpty || !mounted) return;

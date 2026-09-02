@@ -1,10 +1,9 @@
-// Profile → native core config compilation (GO_DAEMON_PLAN.md §5): the app
-// VLESS profile becomes (a) an xray client config dialing the REAL node and
-// (b) the proven sing-box config whose xray-reality outbound bridges to it
-// in-memory. This REPLACES the Rust cores/xray.rs schema mirror — the old
-// loopback-era sections (socks/http/metrics inbounds, api/stats, fakedns,
-// level-8 policy) are gone; the embedded config is minimal and is proven by
-// the runtime gates instead of byte-compat with the old generator.
+// Profile → native core config compilation: the app VLESS profile becomes
+// (a) an xray client config dialing the REAL node and (b) the proven
+// sing-box config whose xray-reality outbound bridges to it in-memory. The
+// embedded config is minimal — no loopback-era sections (socks/http/metrics
+// inbounds, api/stats, fakedns, level-8 policy) — and is proven by the
+// runtime gates.
 
 package engine
 

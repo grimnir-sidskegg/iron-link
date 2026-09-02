@@ -3,7 +3,7 @@
 // shape is the sing-box 1.12 shape — internal/routing); the compiler's work
 // is the target: route targets resolve to THIS plan's outbound tags, actions
 // become sing-box rule actions, null-valued stored conditions are stripped
-// (the Rust generator never emitted them).
+// (the dispatcher must never see them).
 //
 // The old system rule `process_name [xray, sing-box] → direct` is
 // DELIBERATELY dropped: in the embedded model there are no core child
@@ -56,9 +56,9 @@ func (p *SessionPlan) resolveTarget(t routing.RuleTarget) (string, error) {
 	}
 }
 
-// conditionsOf copies a rule's stored conditions, stripping null values (the
-// Rust store serializes the legacy condition fields as null when unset; the
-// dispatcher must not see them).
+// conditionsOf copies a rule's stored conditions, stripping null values (a
+// stored config may carry the legacy condition fields as null when unset;
+// the dispatcher must not see them).
 func conditionsOf(r routing.Rule) map[string]any {
 	out := make(map[string]any, len(r.Conditions)+2)
 	for k, v := range r.Conditions {
@@ -71,8 +71,8 @@ func conditionsOf(r routing.Rule) map[string]any {
 }
 
 // compileMatchRule builds a nested logical sub-rule: CONDITIONS ONLY, no
-// action/outbound — a sub-rule's own target is ignored, as in the Rust
-// build_match_rule_no_action. Recurses for logical sub-rules.
+// action/outbound — a sub-rule's own target is deliberately ignored.
+// Recurses for logical sub-rules.
 func compileMatchRule(r routing.Rule) map[string]any {
 	out := conditionsOf(r)
 	if r.IsLogical() {

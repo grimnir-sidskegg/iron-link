@@ -6,7 +6,7 @@ import (
 	"ironlink/daemon/internal/api"
 )
 
-// vlessNode builds a test VLESS profile, mirroring the Rust test helper.
+// vlessNode builds a test VLESS profile.
 func vlessNode(transport Transport, security Security, flow string) *VlessConfig {
 	return &VlessConfig{
 		ServerName: "t",

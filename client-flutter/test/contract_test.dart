@@ -1,5 +1,5 @@
 /// The Dart half of the cross-language wire contract, against
-/// `contract/fixtures/` — the same discipline as the Rust and Go suites:
+/// `contract/fixtures/` — the same discipline as the Go suite:
 ///
 /// - requests (`requests/`): this client EMITS them, so
 ///   `toJson()` must equal the fixture EXACTLY as a JSON value (explicit

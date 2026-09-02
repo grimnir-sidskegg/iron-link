@@ -1,4 +1,4 @@
-// Per-node core selection — the Go port of Rust `proxy/selection.rs`.
+// Per-node core selection.
 //
 // A node is dialed by a core chosen from those whose capabilities cover its
 // (protocol, transport, security, flow). Hard constraints win (a transport
@@ -39,7 +39,7 @@ func EligibleCores(p Profile) []api.CoreType {
 }
 
 // SelectCore picks the core that will dial p. override == nil means "let
-// selection decide". Rule order (exact, mirrors the Rust impl):
+// selection decide". Rule order (exact):
 //
 //  1. compute eligible; if empty → error (no installed core can dial it).
 //  2. if override is set: return it if eligible, else error.

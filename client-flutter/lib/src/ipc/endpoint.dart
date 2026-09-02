@@ -1,7 +1,6 @@
-/// Control-endpoint and config-root discovery, mirroring the layout shared
-/// by the Go daemon (`internal/ipc`, `internal/store`) and the former Rust
-/// clients — the daemon and every client
-/// MUST resolve the same location or they cannot find each other:
+/// Control-endpoint and config-root discovery, mirroring the layout the Go
+/// daemon uses (`internal/ipc`, `internal/store`) — the daemon and every
+/// client MUST resolve the same location or they cannot find each other:
 ///
 /// | | Linux | macOS | Windows |
 /// |---|---|---|---|

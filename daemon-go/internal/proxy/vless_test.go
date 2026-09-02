@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// Mirrors the Rust `parse_vless_basic` test byte-for-byte: the same URL must
-// yield the same parsed config.
+// A full-featured reality+xhttp link: every recognized query parameter must
+// land in the parsed config.
 func TestParseVlessBasic(t *testing.T) {
 	url := "vless://88f2c0dc-a8e3-49f4-89b9-b3b54f1cad3a@188.188.0.1:443?security=reality&type=xhttp&headerType=&path=&host=&mode=auto&sni=google.com&fp=chrome&pbk=hsNnIVYyMIFj0RfkH9y7pQckA2fasdfetrwfv&sid=cb423123gfds#Server%20Name"
 
@@ -60,7 +60,7 @@ func TestParseVlessDefaults(t *testing.T) {
 }
 
 func TestParseVlessPlusInFragmentDecodesToSpace(t *testing.T) {
-	// The Rust parser reads the fragment as form pairs, so '+' is a space.
+	// The fragment is read as form pairs, so '+' is a space.
 	p, err := ParseURL("vless://u@example.com:443#Server+Name")
 	if err != nil {
 		t.Fatalf("ParseURL: %v", err)
@@ -77,8 +77,7 @@ func TestParseVlessMissingHostIsError(t *testing.T) {
 }
 
 func TestParseVlessRealityRequiresAllParams(t *testing.T) {
-	// sni present, fp/pbk/sid missing → error (Rust: .context("reality
-	// requires fp")).
+	// sni present, fp/pbk/sid missing → error ("reality requires fp").
 	if _, err := ParseURL("vless://u@h:443?security=reality&sni=google.com"); err == nil {
 		t.Error("expected error for reality link missing fp/pbk/sid")
 	}

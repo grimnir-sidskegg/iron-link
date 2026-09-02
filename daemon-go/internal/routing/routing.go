@@ -1,10 +1,10 @@
-// Package routing is the user routing model — the Go port of the former Rust
-// routing model. A stored rule is DELIBERATELY thin here: its match conditions
-// are already the sing-box 1.12 condition fields (that is the Rust model's
-// "full 1.12 parity" design), so the Go side keeps them as a PASSTHROUGH map
-// and only interprets what it must: the `target` (which outbound/action the
-// rule selects) and the nested `rules` of a logical rule. The engine compiles
-// target → outbound tag; everything else flows to sing-box verbatim.
+// Package routing is the user routing model. A stored rule is DELIBERATELY
+// thin: its match conditions are already the sing-box 1.12 condition fields
+// ("full 1.12 parity" by design), so the model keeps them as a PASSTHROUGH
+// map and only interprets what it must: the `target` (which outbound/action
+// the rule selects) and the nested `rules` of a logical rule. The engine
+// compiles target → outbound tag; everything else flows to sing-box
+// verbatim.
 package routing
 
 import (
@@ -15,9 +15,8 @@ import (
 	"ironlink/daemon/internal/uuid"
 )
 
-// Config is one named routing configuration (Rust RoutingConfig). The on-disk
-// JSON is serde-compatible: a config without an id gets a fresh one on decode
-// (mirrors `#[serde(default = "uuid::Uuid::new_v4")]`).
+// Config is one named routing configuration. On decode, a config without an
+// id gets a fresh one (defaulted, never rejected).
 type Config struct {
 	ID            string
 	Name          string
@@ -48,7 +47,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 
 func (c Config) MarshalJSON() ([]byte, error) {
 	a := configJSON{ID: c.ID, Name: c.Name, RuleSets: c.RuleSets, Rules: c.Rules, DefaultTarget: c.DefaultTarget}
-	// serde reads `[]`, not `null`, for the collections.
+	// The stored shape spells the collections `[]`, never `null`.
 	if a.RuleSets == nil {
 		a.RuleSets = []RuleSetSource{}
 	}
@@ -58,8 +57,8 @@ func (c Config) MarshalJSON() ([]byte, error) {
 	return json.Marshal(a)
 }
 
-// NewDefault is the "default" config a fresh profile carries (Rust
-// Profile::new): no rules, everything to the default proxy.
+// NewDefault is the "default" config a fresh profile carries: no rules,
+// everything to the default proxy.
 func NewDefault() Config {
 	return Config{
 		ID:            uuid.New(),
@@ -107,9 +106,8 @@ type ResolveParams struct {
 	Strategy string `json:"strategy,omitempty"`
 }
 
-// RuleTarget is the serde-compatible tagged union (Rust RuleTarget): unit
-// variants are bare strings, Node is {"Node":"<uuid>"}, Sniff/Resolve carry
-// their params.
+// RuleTarget is an externally-tagged union: unit variants are bare strings,
+// Node is {"Node":"<uuid>"}, Sniff/Resolve carry their params.
 type RuleTarget struct {
 	Kind    TargetKind
 	Node    string // uuid, when Kind == TargetNode
@@ -189,12 +187,12 @@ func (t RuleTarget) MarshalJSON() ([]byte, error) {
 
 // Rule is one route rule: the target, the nested sub-rules of a logical rule,
 // and every other key — the sing-box condition fields — passed through
-// VERBATIM (never lossily rewritten, exactly like the store's raw round-trip
-// before this port, but with the two interpreted parts split out).
+// VERBATIM (never lossily rewritten; only the two interpreted parts are
+// split out).
 type Rule struct {
 	Target RuleTarget
 	// Rules are a logical rule's nested sub-rules (their own targets are
-	// ignored by the compiler, as in the Rust build_match_rule_no_action).
+	// deliberately ignored by the compiler).
 	Rules []Rule
 	// Conditions holds the remaining keys verbatim (process_name, domain_*,
 	// port, rule_set, type/mode/invert, ip_cidr, …).

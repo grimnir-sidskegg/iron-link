@@ -1,8 +1,7 @@
 // Construct-time verification of the Profile → config compilation (no root, no
 // network): every compiled xray client config must be ACCEPTED BY THE REAL
 // CORE (BuildXray starts the instance — schema errors surface here), and the
-// shape assertions lock the stream-settings mapping the way the Rust
-// generator's tests did.
+// shape assertions lock the stream-settings mapping.
 package engine
 
 import (
@@ -92,10 +91,9 @@ func dig(t *testing.T, v any, path ...any) any {
 	return v
 }
 
-// TestCompileXrayClientRealityXhttpShape locks the reality+xhttp mapping (the
-// Go analogue of the Rust reality_xhttp_stream_settings test) plus the
-// own-traffic invariants: the fwmark on BOTH outbounds and the dns→direct
-// routing rule.
+// TestCompileXrayClientRealityXhttpShape locks the reality+xhttp mapping
+// plus the own-traffic invariants: the fwmark on BOTH outbounds and the
+// dns→direct routing rule.
 func TestCompileXrayClientRealityXhttpShape(t *testing.T) {
 	v := testVless(testReality(),
 		ilproxy.Transport{Kind: ilproxy.TransportXhttp, Xhttp: &ilproxy.XhttpParams{

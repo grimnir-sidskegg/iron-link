@@ -1,8 +1,8 @@
 // Package store is the iron-link profile store (`profiles/<name>.json` +
-// `state.json` under the config root). The on-disk encoding is Go-native
-// (schema v2, plain encoding/json over the model structs, atomic 0600
-// files); pre-v2 (Rust-serde) files are rejected with a clear error — the
-// legacy decode path and its startup migration were removed 2026-06-12.
+// `state.json` under the config root). The on-disk encoding is schema v2
+// (plain encoding/json over the model structs, atomic 0600 files); pre-v2
+// files are rejected with a clear error — the legacy decode path and its
+// startup migration were removed after the only deployment migrated.
 package store
 
 import (
@@ -20,7 +20,7 @@ import (
 )
 
 // DefaultDir returns the iron-link config root: $IRON_LINK_CONFIG_DIR if set
-// (the test/dev override the Rust paths honor), else the platform config dir
+// (the test/dev override), else the platform config dir
 // (~/.config, %APPDATA%, ~/Library/Application Support) + "iron-link".
 //
 // SPECIAL CASE — elevated for TUN via sudo: TUN needs root, but the user's
@@ -48,9 +48,8 @@ func DefaultDir() (string, error) {
 // sudoUserConfigDir resolves the iron-link config root of the user that invoked
 // sudo (from SUDO_UID → their home dir), so a root daemon reads that user's
 // existing profiles. Returns ok=false when not under sudo or the user can't be
-// resolved — DefaultDir then falls back to os.UserConfigDir. Matches the Rust
-// client's config_root for the common case (no XDG_CONFIG_HOME override; that
-// edge is covered by IRON_LINK_CONFIG_DIR).
+// resolved — DefaultDir then falls back to os.UserConfigDir. No
+// XDG_CONFIG_HOME handling; that edge is covered by IRON_LINK_CONFIG_DIR.
 func sudoUserConfigDir(getenv func(string) string) (string, bool) {
 	uid := getenv("SUDO_UID")
 	if uid == "" {
@@ -93,8 +92,7 @@ func OpenAt(baseDir string) *Store {
 func (s *Store) Dir() string { return s.baseDir }
 
 // ValidateName enforces ^[A-Za-z0-9._-]{1,64}$ — names double as on-disk
-// filenames, so the set rejects path separators, "..", and whitespace
-// (mirrors the Rust validate_name).
+// filenames, so the set rejects path separators, "..", and whitespace.
 func ValidateName(name string) error {
 	if name == "" {
 		return fmt.Errorf("name must not be empty")
@@ -119,8 +117,8 @@ func (s *Store) profilePath(name string) string {
 
 // atomicWrite persists bytes at path via a same-directory temp file + rename,
 // tightened to 0600 BEFORE the content lands (profiles hold node credentials).
-// Mode-setting is a no-op on Windows, like the Rust set_file_mode_0600 — the
-// named-pipe/dir ACLs are the protection there.
+// Mode-setting is a no-op on Windows — the named-pipe/dir ACLs are the
+// protection there.
 func atomicWrite(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -175,10 +173,9 @@ func renameWithRetry(from, to string) error {
 
 // LoadProfile reads and decodes profiles/<name>.json (schema v2). The
 // version probe is an explicit GUARD, not a dispatch: Go's case-insensitive
-// JSON field matching would otherwise HALF-decode a pre-v2 (Rust-serde)
-// file silently — better a clear error. (The v1 decode path and its
-// startup migration were removed 2026-06-12 after the only deployment
-// migrated.)
+// JSON field matching would otherwise HALF-decode a pre-v2 file silently —
+// better a clear error. (The v1 decode path and its startup migration were
+// removed after the only deployment migrated.)
 func (s *Store) LoadProfile(name string) (*Profile, error) {
 	if err := ValidateName(name); err != nil {
 		return nil, err
@@ -223,7 +220,7 @@ func (s *Store) SaveProfile(name string, p *Profile) error {
 	return atomicWrite(s.profilePath(name), data)
 }
 
-// CreateProfile creates a NEW named profile (Rust Profile::new shape),
+// CreateProfile creates a NEW named profile with the NewProfile defaults,
 // rejecting an existing one.
 func (s *Store) CreateProfile(name string) error {
 	if err := ValidateName(name); err != nil {
@@ -313,9 +310,9 @@ func (s *Store) writeState(active *string) error {
 
 // -- last session (restore-on-start) ------------------------------------------
 
-// lastSession mirrors the Rust LastSession: the persisted Activate INTENT —
-// names + the tun flag, never paths/argv (a poisoned record can at worst name
-// a different profile/node; the daemon re-plans on restore).
+// lastSession is the persisted Activate INTENT — names + the tun flag,
+// never paths/argv (a poisoned record can at worst name a different
+// profile/node; the daemon re-plans on restore).
 type lastSession struct {
 	Context api.PersistedEntry `json:"context"`
 }

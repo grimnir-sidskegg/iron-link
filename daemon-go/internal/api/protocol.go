@@ -12,8 +12,8 @@ import "encoding/json"
 //
 // Each kind is modelled as a FLAT struct that unions all its variants' fields,
 // tagged by the discriminator. A flat struct (rather than a Go interface)
-// round-trips cleanly with the Rust internally-tagged enums: absent fields are
-// nil / omitempty and the handler switches on the tag. Adding a variant is
+// round-trips cleanly with the internally-tagged wire encoding: absent fields
+// are nil / omitempty and the handler switches on the tag. Adding a variant is
 // additive.
 
 // ---- Request ---------------------------------------------------------------
@@ -411,10 +411,9 @@ type UpdateStatus struct {
 
 // LatencyResult is one node's probe outcome.
 //
-// Intentional API cleanup vs the Rust `(String, Option<u16>)` tuple: an object
-// with named fields, not a 2-element array — both mirrors stay readable and the
-// Rust side is updated to match at G1 step 5. LatencyMs == nil means a
-// timed-out / unreachable probe (the request as a whole still succeeds).
+// Deliberately an object with named fields, not a 2-element array — the wire
+// stays readable. LatencyMs == nil means a timed-out / unreachable probe
+// (the request as a whole still succeeds).
 type LatencyResult struct {
 	Node      string  `json:"node"`
 	LatencyMs *uint16 `json:"latency_ms"`

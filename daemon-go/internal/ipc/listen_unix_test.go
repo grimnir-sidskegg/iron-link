@@ -20,7 +20,7 @@ func TestResolveAddr(t *testing.T) {
 		t.Fatalf("override: got %q", got)
 	}
 
-	// Unprivileged: the Rust-convention $XDG_RUNTIME_DIR/iron-link.sock.
+	// Unprivileged: $XDG_RUNTIME_DIR/iron-link.sock.
 	if got := resolveAddr(1000, env(map[string]string{"XDG_RUNTIME_DIR": "/run/user/1000"})); got != "/run/user/1000/iron-link.sock" {
 		t.Fatalf("xdg: got %q", got)
 	}

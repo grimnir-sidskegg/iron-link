@@ -259,8 +259,7 @@ const probeTimeout = 45 * time.Second
 const warmupTries = 2
 
 // ProbeURL is the latency probe endpoint — the classic generate_204 returns
-// an empty 204, so the round trip measures connection latency without a body
-// (same endpoint the Rust Observatory used).
+// an empty 204, so the round trip measures connection latency without a body.
 const ProbeURL = "https://www.gstatic.com/generate_204"
 
 // ProbeLatency measures one node's latency: an ephemeral in-process xray

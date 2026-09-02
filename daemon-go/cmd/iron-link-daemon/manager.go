@@ -25,7 +25,6 @@ import (
 
 // tunInterfaceName returns the fixed TUN device name, or "" on macOS where
 // only kernel-assigned utunN names are allowed (sing-box auto-assigns).
-// Mirrors the Rust generator's TUN_INTERFACE.
 func tunInterfaceName() string {
 	if runtime.GOOS == "darwin" {
 		return ""
@@ -54,7 +53,7 @@ type manager struct {
 
 	// mu guards the session state. It IS held across engine.Start/Close —
 	// activations are deliberately serialized; a second Activate waits, then
-	// REPLACES the session (same semantics as the Rust daemon's stop-then-start).
+	// REPLACES the session (stop-then-start semantics).
 	mu        sync.Mutex
 	sess      *engine.Session
 	plan      engine.SessionPlan // the embedded node set (IsMember = live-switchable)
@@ -236,9 +235,9 @@ func errResp(msg string) api.Response {
 }
 
 // activate resolves NAMES from the wire to a stored node (the wire never
-// carries paths or config — same trust boundary as the Rust daemon), compiles
-// the node to native core configs, and starts the Session, REPLACING any
-// running one.
+// carries paths or config — that is the trust boundary), compiles the node
+// to native core configs, and starts the Session, REPLACING any running
+// one.
 func (m *manager) activate(req api.Request) api.Response {
 	profileName := ""
 	if req.Profile != nil {
@@ -565,7 +564,7 @@ func (m *manager) stop(req api.Request) api.Response {
 }
 
 // shutdown closes a running session WITHOUT clearing the last-session record:
-// a daemon restart restores it (the Rust restore semantics). Called on
+// a daemon restart restores it. Called on
 // process exit only. A running installer download is aborted and waited
 // for: its temp file is removed by the transfer's own deferred cleanup,
 // which only runs if the process does not exit first.

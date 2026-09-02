@@ -27,9 +27,9 @@ const AutoRedirectOutputMark = 0x2024
 
 // FreedomValidationConfigs returns a (sing-box, xray) config pair that drives the
 // WHOLE TUN data path through the in-memory bridge with a direct `freedom` xray —
-// no real node. It mirrors the proven Rust generator's TUN structure
-// (cores/sing_box.rs): 172.18.0.1/30 + IPv6, auto_route + auto_redirect (Linux
-// nftables), strict_route, stack "mixed", route_exclude_address, DoT resolver.
+// no real node. It uses the proven TUN structure: 172.18.0.1/30 + IPv6,
+// auto_route + auto_redirect (Linux nftables), strict_route, stack "mixed",
+// route_exclude_address, DoT resolver.
 //
 // Loop fix (the auto_route trap the spike hit): the base TUN was confirmed working
 // via TestRuntimeDirectTun, so the only remaining looper is xray's OWN upstream —
@@ -59,7 +59,7 @@ func FreedomValidationConfigs(tunName string) (singBox, xray []byte) {
 //
 // An empty tunName omits interface_name so sing-box auto-assigns one — macOS
 // only allows kernel-control utunN device names, so fixed names are
-// Linux/Windows-only (mirrors the Rust generator's TUN_INTERFACE).
+// Linux/Windows-only.
 func singBoxTUNConfig(tunName string) []byte {
 	iface := ""
 	if tunName != "" {
@@ -94,8 +94,8 @@ func singBoxTUNConfig(tunName string) []byte {
 
 // DirectTunValidationConfig isolates the BASE TUN data path with NO xray: a TUN
 // inbound routes everything to sing-box's own `direct` outbound, DNS via a DoT
-// server (also direct). It mirrors the structure of the proven Rust generator
-// (cores/sing_box.rs): 172.18.0.1/30 + IPv6, mtu 1500, auto_route + auto_redirect
+// server (also direct). It uses the same proven TUN structure:
+// 172.18.0.1/30 + IPv6, mtu 1500, auto_route + auto_redirect
 // (Linux nftables), strict_route, stack "mixed", route_exclude_address, and a
 // dns-google DoT resolver. If this gets 204 but FreedomValidationConfigs does
 // not, the base TUN is fine and the fault is xray-under-TUN; if this also fails,

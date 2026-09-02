@@ -9,9 +9,7 @@ it together with the daemon into a single-file Inno Setup installer
 
 There is no core fetching: `sing-box` and `xray` are **embedded as libraries**
 inside the Go daemon (`daemon-go/`), pinned in its `go.mod` (never float
-them). The old
-`cores.lock`/`fetch_cores.py` supply-chain machinery went with the spawning
-Rust daemon (removed earlier; the Rust front-ends followed 2026-06-13).
+them).
 
 ## Pieces
 

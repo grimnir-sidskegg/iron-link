@@ -7,7 +7,7 @@
 # themselves; the Go wire-contract fixture suite runs here too), and the 3-OS
 # cross-build matrix (green Linux != green Windows — the sing-tun pin burned us
 # once). The Dart half of the wire contract lives in client-flutter/ (run
-# `flutter test` there); the Rust half was removed with the crates 2026-06-13.
+# `flutter test` there).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

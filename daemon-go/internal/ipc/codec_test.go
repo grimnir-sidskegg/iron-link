@@ -65,8 +65,9 @@ func TestFrameRoundTrip(t *testing.T) {
 	}
 }
 
-// TestLatencyResultWireShape pins the intentional object encoding (vs a Rust
-// tuple): {"node":…,"latency_ms":…|null}. A nil LatencyMs must serialize null.
+// TestLatencyResultWireShape pins the intentional object encoding (vs a
+// 2-element array): {"node":…,"latency_ms":…|null}. A nil LatencyMs must
+// serialize null.
 func TestLatencyResultWireShape(t *testing.T) {
 	got, err := json.Marshal(api.LatencyResult{Node: "de-1", LatencyMs: u16ptr(73)})
 	if err != nil {

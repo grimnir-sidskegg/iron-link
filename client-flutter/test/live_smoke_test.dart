@@ -158,7 +158,7 @@ void main() {
   });
 
   test('routing lifecycle: upsert → list → select → remove', () async {
-    // NB: the store shape spells targets in the Rust enum's PascalCase
+    // NB: the store shape spells targets in tagged PascalCase
     // ("DefaultProxy"); the `upsert_routing` contract fixture's "proxy"
     // would be rejected by the daemon's routing decoder.
     await client.upsertRouting({

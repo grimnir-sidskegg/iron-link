@@ -245,8 +245,7 @@ class _RoutingEditorPageState extends State<RoutingEditorPage> {
 
   /// The target dropdown over `schema.targets` plus the node picker shown
   /// only for the Node token; switching kinds away from Node clears the
-  /// picked node (the egui `target_combo` semantics). An [OpaqueTarget]
-  /// renders as a read-only preserved label.
+  /// picked node. An [OpaqueTarget] renders as a read-only preserved label.
   Widget _targetPicker(TargetDraft target) {
     if (target is! RouteTarget) {
       return Text('advanced action target (preserved)',
@@ -299,8 +298,8 @@ class _RoutingEditorPageState extends State<RoutingEditorPage> {
   }
 
   // No `supported` check here on purpose: an existing condition renders even
-  // when it cannot match on this daemon's platform (egui parity) — only the
-  // add menu filters.
+  // when it cannot match on this daemon's platform — only the add menu
+  // filters.
   Widget _condRow(FlatRule rule, CondDraft cond) {
     final input = switch (cond.kind) {
       'bool' => Checkbox(
@@ -440,8 +439,8 @@ class _RoutingEditorPageState extends State<RoutingEditorPage> {
   }
 
   /// Offers schema conditions that are supported on the daemon's platform
-  /// AND not already present on the rule (the egui `add_condition_combo`
-  /// filter). Picking one seeds an empty draft of the schema's kind.
+  /// AND not already present on the rule. Picking one seeds an empty draft
+  /// of the schema's kind.
   Widget _addConditionMenu(FlatRule rule) {
     final available = [
       for (final spec in widget.schema.conditions)

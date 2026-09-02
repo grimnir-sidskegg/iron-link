@@ -1,7 +1,6 @@
-// Package subscription is the daemon-side subscription pipeline (G3): Fetch →
-// decode → split → parse → merge → (the caller persists). Ported from the
-// former Rust subscription pipeline; fetch lives in the DAEMON only — front-ends never
-// fetch (G3). Fetch routing is direct for now
+// Package subscription is the daemon-side subscription pipeline: Fetch →
+// decode → split → parse → merge → (the caller persists). Fetch lives in
+// the DAEMON only — front-ends never fetch. Fetch routing is direct for now
 // (through-tunnel / bootstrap is a later seam).
 package subscription
 
@@ -20,7 +19,7 @@ import (
 	"ironlink/daemon/internal/store"
 )
 
-// fetchTimeout is unchanged from the Rust implementation. DefaultUserAgent
+// fetchTimeout bounds one subscription fetch. DefaultUserAgent
 // is the fallback UA (providers gate the body format on the UA); the
 // effective value is the settings document's subscription_user_agent,
 // passed in by the caller.

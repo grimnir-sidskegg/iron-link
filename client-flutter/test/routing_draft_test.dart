@@ -1,7 +1,6 @@
-/// The pure routing-draft model, ported test-for-test from the `#[cfg(test)]`
-/// suite of the former egui routing editor (adapted to the
-/// per-item [CondItem] editing this model deliberately deviates with), plus
-/// a round-trip over the shared contract fixtures (`routing_config` parsed
+/// The pure routing-draft model: draft/encode/validate cases for every
+/// condition kind (including the per-item [CondItem] editing), plus a
+/// round-trip over the shared contract fixtures (`routing_config` parsed
 /// against the real `routing_schema`).
 library;
 
@@ -223,9 +222,9 @@ void main() {
   });
 
   test('a value with internal spaces round-trips verbatim', () {
-    // Regression: the egui reference edits arrays as one comma-joined text
-    // and re-splits on commas AND spaces, corrupting this Windows path into
-    // two broken tokens. Per-item editing must keep it whole.
+    // Regression guard: editing arrays as one comma-joined text re-split on
+    // commas AND spaces corrupts this Windows path into two broken tokens.
+    // Per-item editing must keep it whole.
     final doc = <String, Object?>{
       'name': 'firefox-only',
       'rule_sets': <Object?>[],

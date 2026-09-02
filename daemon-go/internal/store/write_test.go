@@ -33,7 +33,7 @@ func mustCompactJSON(t *testing.T, v any) string {
 // TestSaveLoadRoundTrip: load the v2 fixture (incl. a NON-TRIVIAL
 // routing_configs block the Go side does not interpret), save it back, load
 // again — the reloaded model must equal the loaded one, and the saved file
-// must keep the schema-v2 Go-native shape (no Rust enum tags creep back).
+// must keep the schema-v2 shape (no legacy v1 enum tags creep back).
 func TestSaveLoadRoundTrip(t *testing.T) {
 	s := fixtureStore(t)
 	p1, err := s.LoadProfile("main")
@@ -62,7 +62,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Errorf("routing rule content lost: %s", rj)
 	}
 
-	// The saved file is Go-native v2, not the Rust serde shape.
+	// The saved file is schema v2, not the legacy v1 shape.
 	raw, err := os.ReadFile(filepath.Join(s.baseDir, "profiles", "copy.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -77,11 +77,11 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Errorf("saved schema_version = %d, want 2", doc.SchemaVersion)
 	}
 	if !strings.Contains(string(raw), `"vless"`) {
-		t.Errorf("saved file lacks the Go-native \"vless\" key:\n%s", raw)
+		t.Errorf("saved file lacks the v2 \"vless\" key:\n%s", raw)
 	}
-	for _, rustTag := range []string{`"Vless"`, `"Tcp"`, `"None"`, `"Reality"`, `"Xhttp"`} {
-		if strings.Contains(string(raw), rustTag) {
-			t.Errorf("saved file still carries the Rust enum tag %s:\n%s", rustTag, raw)
+	for _, legacyTag := range []string{`"Vless"`, `"Tcp"`, `"None"`, `"Reality"`, `"Xhttp"`} {
+		if strings.Contains(string(raw), legacyTag) {
+			t.Errorf("saved file still carries the legacy v1 enum tag %s:\n%s", legacyTag, raw)
 		}
 	}
 }
@@ -448,7 +448,7 @@ func TestLastSessionRoundTripAndClear(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The on-disk shape matches the Rust LastSession ({"context": {...}}).
+	// The on-disk shape wraps the entry in "context" ({"context": {...}}).
 	raw, err := os.ReadFile(filepath.Join(s.baseDir, "last_session.json"))
 	if err != nil {
 		t.Fatal(err)

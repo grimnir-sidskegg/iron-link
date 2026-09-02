@@ -1,5 +1,4 @@
-/// The typed IPC client every screen talks through — the Dart counterpart
-/// of the former Rust client's IPC half. One connection per
+/// The typed IPC client every screen talks through. One connection per
 /// request/response (mirroring the daemon's model); `subscribe()` opens a
 /// dedicated connection that becomes a one-way event stream.
 library;
@@ -13,7 +12,7 @@ import 'endpoint.dart';
 import 'pipe_windows.dart';
 import 'transport.dart';
 
-/// Error taxonomy, mirroring the Rust client's: [DaemonUnreachable]
+/// Error taxonomy: [DaemonUnreachable]
 /// (cannot connect — carries the endpoint for the "is the daemon
 /// running?" hint), [DaemonError] (the daemon replied `error`),
 /// [ProtocolError] (the reply did not match the verb, or the stream broke

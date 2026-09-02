@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// realShapedConfig mirrors the user-facing "basic" config the Rust app writes
-// today: a remote rule set, legacy condition fields serialized as null, a
-// 1.12 condition (ip_cidr), Direct default.
+// realShapedConfig mirrors a user-facing "basic" config as found on disk: a
+// remote rule set, legacy condition fields serialized as null, a 1.12
+// condition (ip_cidr), Direct default.
 const realShapedConfig = `{
   "id": "03c9d0ff-c200-4990-8edf-621572573db6",
   "name": "basic",

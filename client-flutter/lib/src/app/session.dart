@@ -1,7 +1,6 @@
-/// Live daemon session state for the UI — the Dart counterpart of the former
-/// egui GUI's worker: a dedicated subscribe connection with 1 s-backoff
-/// reconnect, PLUS a slow 5 s `status` backstop poll. The poll is not
-/// redundancy: a `urltest` auto-switch does not emit a State event, so
+/// Live daemon session state for the UI: a dedicated subscribe connection
+/// with 1 s-backoff reconnect, PLUS a slow 5 s `status` backstop poll. The
+/// poll is not redundancy: a `urltest` auto-switch does not emit a State event, so
 /// `active_node_live` is only observable by re-reading status (ROADMAP
 /// wire-cleanup item).
 library;

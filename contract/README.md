@@ -20,7 +20,7 @@ Each side asserts the direction it actually speaks on the wire:
 
 "Exact" means the language's serializer output must equal the fixture modulo
 key order — including which fields are omitted vs `null`. The decode side is
-deliberately lenient (serde defaults / ignored unknown fields), and the tests
+deliberately lenient (defaults for absent fields / ignored unknown fields), and the tests
 pin that leniency too (e.g. `responses/ok_add_node.json`,
 `events/state_idle.json`).
 

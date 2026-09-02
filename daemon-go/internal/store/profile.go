@@ -1,8 +1,7 @@
-// The Profile domain model + its invariant-enforcing mutators — the Go port
-// of the former Rust profile model. All mutation goes through methods that enforce
-// the invariants (active selections reference an existing member; names are
-// validated; duplicate subscription URLs rejected); persistence is the
-// store's atomic 0600 write.
+// The Profile domain model + its invariant-enforcing mutators. All mutation
+// goes through methods that enforce the invariants (active selections
+// reference an existing member; names are validated; duplicate subscription
+// URLs rejected); persistence is the store's atomic 0600 write.
 package store
 
 import (
@@ -20,14 +19,14 @@ import (
 // SchemaVersion is the on-disk schema version of a Profile (bumped on
 // incompatible shape changes; absent in old files = 1):
 //
-//	v1 = the Rust serde shape (no longer decodable — the legacy path was
-//	     removed 2026-06-12 after the only deployment migrated)
-//	v2 = Go-native (plain encoding/json over the model structs)
+//	v1 = the legacy pre-release shape (no longer decodable — the legacy
+//	     path was removed after the only deployment migrated)
+//	v2 = plain encoding/json over the model structs
 const SchemaVersion = 2
 
 // Profile is a user profile: its nodes, subscriptions, routing configs, and
 // the active selections among them. The on-disk JSON (schema v2) is the
-// plain encoding/json shape of this struct — no Rust byte-compat anymore.
+// plain encoding/json shape of this struct.
 type Profile struct {
 	SchemaVersion   uint32           `json:"schema_version"`
 	Name            string           `json:"name"`
@@ -38,8 +37,8 @@ type Profile struct {
 	ActiveRoutingID *string          `json:"active_routing_id"`
 }
 
-// NewProfile mirrors Rust Profile::new: a fresh profile with one "default"
-// routing config selected as active.
+// NewProfile builds a fresh profile with one "default" routing config
+// selected as active.
 func NewProfile(name string) *Profile {
 	defaultRouting := routing.NewDefault()
 	return &Profile{
@@ -69,7 +68,7 @@ func (p *Profile) normalize() {
 	}
 }
 
-// Subscription mirrors the Rust Subscription. Format is the body dialect the
+// Subscription is one subscription source. Format is the body dialect the
 // refresh parses with — "auto" (or "", in pre-format files) detects; an
 // explicit value forces one parser (validated at the wire boundary, values
 // owned by internal/subscription).
@@ -84,8 +83,8 @@ type Subscription struct {
 	Format            string    `json:"format,omitempty"`
 }
 
-// NewSubscription mirrors Rust Subscription::new: enabled, daily interval,
-// verification on, format auto-detected.
+// NewSubscription builds a subscription with the defaults: enabled, daily
+// interval, verification on, format auto-detected.
 func NewSubscription(url, name string) Subscription {
 	return Subscription{
 		ID:                uuid.New(),
@@ -204,7 +203,7 @@ func (n *Node) DisplayName() string {
 	return n.Doc.P.DisplayName()
 }
 
-// NodePrefs mirrors the Rust NodePrefs: CoreOverride nil = "let selection
+// NodePrefs holds per-node preferences: CoreOverride nil = "let selection
 // decide".
 type NodePrefs struct {
 	CoreOverride *api.CoreType `json:"core_override"`
@@ -261,7 +260,7 @@ func (p *Profile) FindSubscription(ref string) *Subscription {
 	return nil
 }
 
-// -- mutators (the Rust owner methods) ---------------------------------------
+// -- mutators ----------------------------------------------------------------
 
 // AddNode appends a node and returns its id. The first node added to a
 // profile with no active node becomes the default active node (a front-end
@@ -386,7 +385,7 @@ func (p *Profile) ReplaceSubscriptionNodes(subID string, newNodes []Node) {
 	p.SetActiveNodeIfUnset()
 }
 
-// -- routing (the former Rust profile routing owner methods) ------------------
+// -- routing mutators ---------------------------------------------------------
 
 // FindRouting returns the routing config whose id OR name equals ref, or nil.
 func (p *Profile) FindRouting(ref string) *routing.Config {
