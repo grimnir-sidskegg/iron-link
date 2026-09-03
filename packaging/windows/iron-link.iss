@@ -49,6 +49,9 @@ AppPublisher=iron-link
 DefaultDirName={autopf}\iron-link
 DefaultGroupName=iron-link
 DisableProgramGroupPage=yes
+; The setup.exe's own icon — the same emblem the app carries (relative to
+; this .iss; ISCC resolves it against the script's directory).
+SetupIconFile=..\..\client-flutter\windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\app\iron_link_flutter.exe
 OutputDir={#OutputDir}
 OutputBaseFilename={#OutputBase}
