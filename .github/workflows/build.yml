@@ -37,12 +37,12 @@ jobs:
           - os: ubuntu-latest
             target: linux-amd64
             archive: tar.gz
-          # macOS build disabled for now — no Mac available to runtime-test the
-          # bundle, and macOS is source-build only (unsigned
-          # bundles get Gatekeeper-quarantined). Re-enable by uncommenting:
-          # - os: macos-latest
-          #   target: darwin-arm64
-          #   archive: tar.gz
+          # The macOS tarball carries the daemon, iron-link.app and the launchd
+          # unit template; install.sh wires them. Ad-hoc signed, not
+          # notarized — INSTALL.md covers the Gatekeeper side.
+          - os: macos-latest
+            target: darwin-arm64
+            archive: tar.gz
           - os: windows-latest
             target: windows-amd64
             archive: zip
@@ -113,7 +113,6 @@ jobs:
           cache-dependency-path: daemon-go/go.sum
 
       - name: Install Flutter
-        if: runner.os != 'macOS'
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
@@ -148,7 +147,6 @@ jobs:
       # end-to-end proof of the named-pipe transport against the real
       # daemon (and its real SDDL).
       - name: Flutter analyze + test
-        if: runner.os != 'macOS'
         shell: bash
         working-directory: client-flutter
         run: |
@@ -182,6 +180,16 @@ jobs:
         run: >
           flutter config --enable-linux-desktop &&
           flutter build linux --release
+          --build-name=${{ steps.ver.outputs.numeric }}
+          --dart-define=IRON_LINK_VERSION=v${{ steps.ver.outputs.version }}
+
+      # The macOS app goes into the per-OS bundle too (assemble.py --app-dir).
+      - name: Build Flutter app (macOS)
+        if: runner.os == 'macOS'
+        working-directory: client-flutter
+        run: >
+          flutter config --enable-macos-desktop &&
+          flutter build macos --release
           --build-name=${{ steps.ver.outputs.numeric }}
           --dart-define=IRON_LINK_VERSION=v${{ steps.ver.outputs.version }}
 
@@ -300,6 +308,7 @@ jobs:
           --version ${{ steps.ver.outputs.version }}
           --daemon-bin daemon-go/bin/iron-link-daemon${{ runner.os == 'Windows' && '.exe' || '' }}
           ${{ runner.os == 'Linux' && '--flutter-dir client-flutter/build/linux/x64/release/bundle' || '' }}
+          ${{ runner.os == 'macOS' && '--app-dir client-flutter/build/macos/Build/Products/Release/iron-link.app' || '' }}
           --staging dist
           --archive ${{ matrix.archive }}
 

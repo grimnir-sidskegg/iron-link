@@ -9,8 +9,9 @@ per-OS install docs/script and the license texts. Produces
 The GUI: on Windows it ships as the Inno Setup installer (daemon + Flutter
 client); on Linux pass `--flutter-dir` with the built Flutter bundle and it
 lands in the archive as `gui/`, together with the systemd unit, the desktop
-entry, and the icon — everything a binary package needs. macOS stays
-daemon-only for now.
+entry, and the icon — everything a binary package needs. On macOS pass
+`--app-dir` with the built `iron-link.app`; it lands next to the daemon
+together with the launchd unit template, and install.sh wires both up.
 
   python3 packaging/assemble.py --target linux-amd64 --version 0.1.0 \
       --daemon-bin daemon-go/bin/iron-link-daemon \
@@ -44,6 +45,7 @@ def main():
     ap.add_argument("--version", required=True)
     ap.add_argument("--daemon-bin", required=True, help="built Go daemon binary")
     ap.add_argument("--flutter-dir", help="built Flutter bundle dir (Linux)")
+    ap.add_argument("--app-dir", help="built iron-link.app bundle (macOS)")
     ap.add_argument("--staging", required=True, help="output dir")
     ap.add_argument("--archive", required=True, choices=["tar.gz", "zip"])
     args = ap.parse_args()
@@ -66,6 +68,26 @@ def main():
             sys.exit(f"missing Flutter bundle dir: {args.flutter_dir}")
         shutil.copytree(args.flutter_dir, os.path.join(bundle, "gui"))
         print("  + gui/")
+
+    # The macOS app bundle. symlinks=True keeps the framework layout
+    # (Versions/Current → A) that the ad-hoc code signature covers; a
+    # dereferenced copy would fail signature validation on launch.
+    if args.app_dir:
+        if not os.path.isdir(args.app_dir):
+            sys.exit(f"missing app bundle: {args.app_dir}")
+        shutil.copytree(
+            args.app_dir, os.path.join(bundle, "iron-link.app"), symlinks=True
+        )
+        print("  + iron-link.app")
+
+    # The launchd unit template; install.sh fills in the user and config dir.
+    if args.target.startswith("darwin"):
+        os.makedirs(os.path.join(bundle, "launchd"), exist_ok=True)
+        shutil.copy2(
+            os.path.join(HERE, "launchd", "org.iron-link.daemon.plist"),
+            os.path.join(bundle, "launchd", "org.iron-link.daemon.plist"),
+        )
+        print("  + launchd/org.iron-link.daemon.plist")
 
     # Linux integration files, so a binary package (or a careful human) can
     # install straight from this archive: systemd unit, desktop entry, icon.

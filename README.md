@@ -4,9 +4,9 @@ iron-link is a desktop proxy orchestrator for Linux, macOS, and Windows. It runs
 as a single Go daemon that embeds the sing-box and xray cores as libraries, with
 a Flutter desktop client on top; the two talk over a typed IPC.
 
-> Status: pre-alpha. Verified end-to-end on Linux and Windows; macOS
-> cross-builds but has not been runtime-tested. The daemon lives in
-> `daemon-go/`; the client lives in `client-flutter/`.
+> Status: pre-alpha. Verified end-to-end on Linux, Windows and macOS (Apple
+> Silicon); the macOS bundle is not notarized, see `packaging/bundle/INSTALL.md`.
+> The daemon lives in `daemon-go/`; the client lives in `client-flutter/`.
 
 ## Overview
 

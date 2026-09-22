@@ -29,23 +29,21 @@ Future<void> main() async {
       : Platform.isWindows
           ? WindowsTray(client: client, session: session)
           : null;
+  // The window shell is the same on every desktop OS: native title bar, a
+  // floor on how small the six-item nav rail can shrink, and a PORTRAIT
+  // default on Windows/macOS instead of the runners' landscape defaults
+  // (1280x720 on Windows, 800x600 in the macOS xib). Linux keeps its
+  // runner's size.
+  await windowManager.ensureInitialized();
+  try {
+    await windowManager.setTitle('iron-link');
+    await windowManager.setMinimumSize(const Size(600, 640));
+    if (Platform.isWindows || Platform.isMacOS) {
+      await windowManager.setSize(const Size(680, 900));
+      await windowManager.center();
+    }
+  } catch (_) {}
   if (tray != null) {
-    await windowManager.ensureInitialized();
-    // Use the platform's NATIVE title bar — the app no longer draws its own.
-    // This avoids the two-stacked-bars glitch some backends showed and gives
-    // each OS its standard window controls; we only tune sizing here.
-    try {
-      await windowManager.setTitle('iron-link');
-      // The shell (nav + content) is a vertical layout: clamp how small it can
-      // shrink — below ~600 wide the six-item nav rail overflows — and on
-      // Windows open it PORTRAIT instead of the Flutter runner's default
-      // 1280x720 landscape, which looked stretched-wide.
-      await windowManager.setMinimumSize(const Size(600, 640));
-      if (Platform.isWindows) {
-        await windowManager.setSize(const Size(680, 900));
-        await windowManager.center();
-      }
-    } catch (_) {}
     unawaited(tray.init());
   }
 

@@ -69,4 +69,7 @@ committing the manifest pair to `updates/` on `main` — is in
   `pkgver`, then `makepkg -si -p PKGBUILD-bin`). Run makepkg from a copy of
   `packaging/arch/` outside the working tree: it rewrites the `pkgver=`
   line in place and dirties the checkout otherwise.
-- **macOS** — source build only.
+- **macOS** — the release tarball carries the daemon, `iron-link.app` and
+  the launchd unit template; its `install.sh` installs all three. The bundle
+  is ad-hoc signed and not notarized — `packaging/bundle/INSTALL.md` covers
+  what that means for users.
