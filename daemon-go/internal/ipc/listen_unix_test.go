@@ -64,7 +64,7 @@ func TestSocketMode(t *testing.T) {
 }
 
 func TestListenUnixPermsAndStale(t *testing.T) {
-	addr := filepath.Join(t.TempDir(), "d.sock")
+	addr := filepath.Join(sockDir(t), "d.sock")
 
 	l, err := Listen(addr)
 	if err != nil {

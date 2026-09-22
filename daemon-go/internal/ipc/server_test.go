@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -19,9 +20,22 @@ func dialUnix(t *testing.T, path string) net.Conn {
 	return conn
 }
 
+// sockDir returns a short temp dir for a unix socket. t.TempDir embeds the
+// test name and macOS caps sun_path at 104 bytes, so long test names fail
+// with "bind: invalid argument" there.
+func sockDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "il")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
 func startServer(t *testing.T, h Handler, hub *Hub) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "s.sock")
+	path := filepath.Join(sockDir(t), "s.sock")
 	l, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatalf("listen: %v", err)

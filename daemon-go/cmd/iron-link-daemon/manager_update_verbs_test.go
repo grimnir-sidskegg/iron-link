@@ -29,9 +29,22 @@ import (
 // subscribeEvents serves m over a real unix-socket IPC server, opens a
 // subscribe connection, drops the initial state snapshot, and streams every
 // following event into the returned channel.
+// sockDir returns a short temp dir for a unix socket. t.TempDir embeds the
+// test name and macOS caps sun_path at 104 bytes, so long test names fail
+// with "bind: invalid argument" there.
+func sockDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "il")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
 func subscribeEvents(t *testing.T, m *manager) <-chan api.Event {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "s.sock")
+	path := filepath.Join(sockDir(t), "s.sock")
 	l, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
