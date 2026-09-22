@@ -7,10 +7,15 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	ilproxy "ironlink/daemon/internal/proxy"
 )
+
+// hy2TestPin is a synthetic certificate pin in the colon-hex form panels
+// emit: 32 bytes, so the value that parses is the value the real core accepts.
+const hy2TestPin = "0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A"
 
 // testRealityParams are syntactically VALID for xray's client REALITY build:
 // fingerprint must be a known uTLS name, publicKey base64url of 32 bytes,
@@ -169,6 +174,66 @@ func TestCompileXrayClientRealityXhttpShape(t *testing.T) {
 	}
 	if got := dig(t, cfg, "routing", "rules", 1, "outboundTag"); got != singleNodeTag {
 		t.Errorf("per-node rule outboundTag = %v, want %q", got, singleNodeTag)
+	}
+}
+
+// TestCompileXrayClientHysteria2 locks the xray-side hysteria2 mapping under
+// the real core: a pinned + salamander node compiles, loads and STARTS, its
+// shape and the own-traffic sockopt are as compiled, and the two nodes xray
+// cannot take are rejected where they should be — insecure without a pin at
+// CompileXrayClient, a malformed pin (stored verbatim) at BuildXray.
+func TestCompileXrayClientHysteria2(t *testing.T) {
+	p := &ilproxy.Hysteria2Config{ServerName: "hy2", Address: "203.0.113.1", Port: 443, Password: "pw",
+		SNI: "cdn.example.com", Obfs: "salamander", ObfsPassword: "x", PinSHA256: hy2TestPin}
+	raw, err := CompileXrayClient(p, "@il-test-hy2")
+	if err != nil {
+		t.Fatalf("CompileXrayClient: %v", err)
+	}
+	xinst, err := BuildXray(raw)
+	if err != nil {
+		t.Fatalf("the real core rejected the compiled config: %v\n%s", err, raw)
+	}
+	xinst.Close()
+
+	var cfg any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("compiled config is not JSON: %v", err)
+	}
+	proxyOut := dig(t, cfg, "outbounds", 0)
+	for _, c := range []struct {
+		path []any
+		want any
+	}{
+		{[]any{"protocol"}, "hysteria"},
+		{[]any{"settings", "version"}, float64(2)},
+		{[]any{"streamSettings", "network"}, "hysteria"},
+		{[]any{"streamSettings", "security"}, "tls"},
+		{[]any{"streamSettings", "tlsSettings", "serverName"}, "cdn.example.com"},
+		{[]any{"streamSettings", "tlsSettings", "pinnedPeerCertSha256"}, hy2TestPin},
+		{[]any{"streamSettings", "hysteriaSettings", "auth"}, "pw"},
+		{[]any{"streamSettings", "finalmask", "udp", 0, "type"}, "salamander"},
+		{[]any{"streamSettings", "sockopt", "mark"}, float64(AutoRedirectOutputMark)},
+		{[]any{"streamSettings", "sockopt", "domainStrategy"}, "UseIP"},
+	} {
+		if got := dig(t, proxyOut, c.path...); got != c.want {
+			t.Errorf("outbounds[0].%v = %v, want %v", c.path, got, c.want)
+		}
+	}
+
+	// negative 1: insecure without a pin never reaches xray
+	if _, err := CompileXrayClient(&ilproxy.Hysteria2Config{Address: "203.0.113.1", Port: 443, Password: "pw", Insecure: true}, "@il-test-hy2-bad"); err == nil {
+		t.Fatal("insecure hysteria2 node without a pin compiled for xray")
+	}
+	// negative 2: a malformed pin is stored verbatim and rejected by the core's config build
+	raw, err = CompileXrayClient(&ilproxy.Hysteria2Config{Address: "203.0.113.1", Port: 443, Password: "pw", PinSHA256: "AA:BB"}, "@il-test-hy2-pin")
+	if err != nil {
+		t.Fatalf("CompileXrayClient (malformed pin): %v", err)
+	}
+	if xinst, err := BuildXray(raw); err == nil {
+		xinst.Close()
+		t.Fatal("2-byte pin accepted")
+	} else if !strings.Contains(err.Error(), "pinnedPeerCertSha256") {
+		t.Fatalf("unexpected rejection: %v", err)
 	}
 }
 

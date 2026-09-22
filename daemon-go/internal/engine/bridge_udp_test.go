@@ -30,8 +30,8 @@ func TestBridgeUDPDNS(t *testing.T) {
 	exchangeDNSOverBridge(t, xinst)
 }
 
-// TestRealNodeUDPDNS is the same UDP round trip THROUGH A REAL NODE (vless
-// xudp encapsulation): part of the env-gated real-node suite.
+// TestRealNodeUDPDNS is the same UDP round trip THROUGH A REAL NODE (the
+// protocol's own UDP encapsulation): part of the env-gated real-node suite.
 func TestRealNodeUDPDNS(t *testing.T) {
 	v := realNodeFromEnv(t)
 	cfg, err := CompileXrayClient(v, "@il-xray-node-udp")

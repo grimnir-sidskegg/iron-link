@@ -8,7 +8,8 @@
 //     (the daemon turns them into Log events; the hub drops under load);
 //   - latency: an EPHEMERAL in-process xray instance per probed node dials a
 //     204 endpoint via core.Dial — no Observatory, no /debug/vars port, and
-//     ONE mechanism for every node kind (xray dials everything we model).
+//     used for the nodes selection routes to xray (sing-box-routed nodes use
+//     probe_singbox.go).
 //
 // This is also the seam G5 instruments for per-stage failure attribution.
 

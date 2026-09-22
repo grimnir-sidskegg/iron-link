@@ -203,6 +203,8 @@ func singBoxLink(ob option.Outbound) (string, bool) {
 				q.Set("insecure", "1")
 			}
 		}
+		// tls.certificate_public_key_sha256 is an SPKI hash, not a certificate
+		// hash: it has no pinSHA256 form and is dropped.
 		if o.Obfs != nil && o.Obfs.Type != "" {
 			q.Set("obfs", o.Obfs.Type)
 			q.Set("obfs-password", o.Obfs.Password)

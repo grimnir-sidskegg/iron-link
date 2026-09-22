@@ -7,6 +7,11 @@ import (
 	"ironlink/daemon/internal/proxy"
 )
 
+// hy2TestPin is a synthetic certificate pin in the colon-hex form panels and
+// mihomo emit: 32 bytes, so the value that parses is the value xray accepts
+// (shared with the xray tests; the clash fixture carries the same literal).
+const hy2TestPin = "0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A"
+
 // readFixture loads a testdata body (shared with the SIP008 tests).
 func readFixture(t *testing.T, name string) string {
 	t.Helper()
@@ -109,7 +114,8 @@ func TestParseClashFixture(t *testing.T) {
 		t.Errorf("trojan transport: %+v", tj.Transport)
 	}
 
-	// hysteria2 with salamander obfs; the clash alpn has no field and is dropped.
+	// hysteria2 with salamander obfs; the clash alpn has no field and is
+	// dropped; fingerprint becomes the pin.
 	hy, ok := findProfile(t, o, "Hy2 Node").(*proxy.Hysteria2Config)
 	if !ok {
 		t.Fatal("Hy2 Node is not a hysteria2 node")
@@ -119,6 +125,9 @@ func TestParseClashFixture(t *testing.T) {
 	}
 	if hy.Obfs != "salamander" || hy.ObfsPassword != "obfs-placeholder" {
 		t.Errorf("hysteria2 obfs: %q/%q", hy.Obfs, hy.ObfsPassword)
+	}
+	if hy.PinSHA256 != hy2TestPin {
+		t.Errorf("hysteria2 pin (mihomo fingerprint): %q", hy.PinSHA256)
 	}
 
 	// tuic v5.

@@ -669,10 +669,9 @@ const latencyProbeConcurrency = 8
 
 // probeNodeLatency measures one node's latency through the SAME core the live
 // session would dial it with — the universal probe: the ephemeral sing-box
-// probe for native nodes (incl. anytls + the QUIC family, which xray cannot
-// dial), the ephemeral xray probe for the xhttp nodes xray is the specialist
-// for. tunExempt stamps the own-traffic fwmark on the sing-box probe when a live
-// TUN is up (see engine.ProbeLatencySingBox).
+// probe for native nodes, the ephemeral xray probe for xray-routed nodes
+// (xhttp, or a node pinned to xray). tunExempt stamps the own-traffic fwmark on
+// the sing-box probe when a live TUN is up (see engine.ProbeLatencySingBox).
 func probeNodeLatency(ctx context.Context, n *store.Node, stubSuffix, url string, tunExempt bool) (time.Duration, error) {
 	core, err := proxy.SelectCore(n.Profile(), api.CoreSingBox, n.Preferences.CoreOverride)
 	if err != nil {

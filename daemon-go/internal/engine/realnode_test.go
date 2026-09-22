@@ -24,26 +24,22 @@ import (
 )
 
 // realNodeFromEnv parses IRON_LINK_TEST_NODE_URL or skips the test.
-func realNodeFromEnv(t *testing.T) *ilproxy.VlessConfig {
+func realNodeFromEnv(t *testing.T) ilproxy.Profile {
 	t.Helper()
 	raw := os.Getenv("IRON_LINK_TEST_NODE_URL")
 	if raw == "" {
-		t.Skip("set IRON_LINK_TEST_NODE_URL to a vless:// share link to run the real-node gate")
+		t.Skip("set IRON_LINK_TEST_NODE_URL to a share link (vless://, hysteria2://, …) to run the real-node gate")
 	}
 	p, err := ilproxy.ParseURL(raw)
 	if err != nil {
 		t.Fatalf("parse IRON_LINK_TEST_NODE_URL: %v", err)
 	}
-	v, ok := p.(*ilproxy.VlessConfig)
-	if !ok {
-		t.Fatalf("IRON_LINK_TEST_NODE_URL parsed to %T, want a VLESS node", p)
-	}
-	return v
+	return p
 }
 
 // TestRealNodeViaSocks drives the whole compiled data plane minus the TUN —
 // share link → ParseURL → NodeSocksConfigs → sing-box SOCKS inbound → route →
-// core.Dial → xray vless/Reality → THE REAL NODE → internet — and expects a
+// core.Dial → xray → THE REAL NODE → internet — and expects a
 // 204. No root; this is the half of the G2 gate runnable anywhere.
 func TestRealNodeViaSocks(t *testing.T) {
 	v := realNodeFromEnv(t)
@@ -80,9 +76,11 @@ func TestRealNodeViaSocks(t *testing.T) {
 // TestRealNodeUniversalLatency proves the UNIVERSAL latency probe against a real
 // node of ANY protocol — set IRON_LINK_TEST_NODE_URL to an anytls/hysteria2/tuic/
 // hysteria/ss/vmess/trojan/vless share link. It routes the node to the same core
-// the live session would (sing-box native, or xray for xhttp) and times a real
-// round trip. This is the end-to-end proof of ProbeLatencySingBox that the unit
-// gate cannot give (no real node). No live TUN here, so the probe is unmarked.
+// the live session would (sing-box by default, xray when forced or when only it
+// can dial) and times a real round trip; IRON_LINK_TEST_CORE=Xray|SingBox forces
+// the core, as a UI pin does. This is the end-to-end proof of ProbeLatencySingBox
+// that the unit gate cannot give (no real node). No live TUN here, so the probe
+// is unmarked.
 //
 //	IRON_LINK_TEST_NODE_URL='hysteria2://…' go test -tags '…' -run RealNodeUniversalLatency ./internal/engine/
 func TestRealNodeUniversalLatency(t *testing.T) {
@@ -94,7 +92,14 @@ func TestRealNodeUniversalLatency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse IRON_LINK_TEST_NODE_URL: %v", err)
 	}
-	core, err := ilproxy.SelectCore(p, api.CoreSingBox, nil)
+	// IRON_LINK_TEST_CORE=Xray|SingBox forces the core (what a UI pin does);
+	// unset = selection's default, sing-box for every dual-core node.
+	var override *api.CoreType
+	if c := os.Getenv("IRON_LINK_TEST_CORE"); c != "" {
+		ct := api.CoreType(c)
+		override = &ct
+	}
+	core, err := ilproxy.SelectCore(p, api.CoreSingBox, override)
 	if err != nil {
 		t.Fatalf("select core for %s: %v", p.Kind(), err)
 	}

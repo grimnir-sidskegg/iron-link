@@ -66,8 +66,10 @@ type Profile interface {
 	// XrayOutbound builds the xray outbound object (protocol/settings/
 	// streamSettings) WITHOUT the own-traffic sockopt — the engine injects
 	// sockopt.mark + domainStrategy into streamSettings. ok=false when xray
-	// cannot dial this protocol (hysteria2/tuic/…). The returned map MUST carry
-	// a "streamSettings" map (possibly empty) for the engine to inject into.
+	// cannot dial this node (tuic/hysteria/anytls; a hysteria2 node that is
+	// insecure without a certificate pin; a shadowsocks node with a plugin).
+	// The returned map MUST carry a "streamSettings" map (possibly empty) for
+	// the engine to inject into.
 	XrayOutbound() (outbound map[string]any, ok bool, err error)
 	// dialableBy reports whether the given core can dial this node — the
 	// per-protocol half of the capability model (selection.go drives it). It is

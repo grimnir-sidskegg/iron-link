@@ -1,10 +1,11 @@
 // The universal latency probe's sing-box half. ProbeLatency (instrument.go)
 // dials through an ephemeral xray and so cannot measure the protocols xray
-// cannot dial (anytls + the QUIC family hysteria2/tuic/hysteria). This probes
-// those through an ephemeral in-process SING-BOX outbound instead — sing-box
-// dials every protocol we model. The manager routes each node to the matching
-// probe by its selected core, so xray is used only for the xhttp resolves it is
-// the specialist for, exactly as the live data path does.
+// cannot dial (anytls, tuic, hysteria v1). This probes those — and every node
+// whose selected core is sing-box — through an ephemeral in-process SING-BOX
+// outbound instead: sing-box dials every protocol we model. The manager
+// routes each node to the matching probe by its selected core, so xray is used
+// for the nodes selection routes to it (xhttp, or a core override such as a
+// pinned hysteria2 node), exactly as the live data path does.
 
 package engine
 

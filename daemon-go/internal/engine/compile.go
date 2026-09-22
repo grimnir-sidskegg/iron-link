@@ -45,10 +45,10 @@ func xrayLogLevel() string {
 // CompileXrayClient builds the xray client config for one node: the node's xray
 // outbound tagged "proxy" (from Profile.XrayOutbound), plus a marked direct
 // freedom outbound for xray's own DNS. It errors when xray cannot dial the
-// node's protocol (e.g. hysteria2/tuic — sing-box-only). stubListen is the
-// abstract-UDS name for the mandatory no-op socks inbound (xray refuses to
-// start with zero inbounds) — give each live config a distinct name so two
-// instances can coexist.
+// node's protocol (e.g. tuic/hysteria/anytls — sing-box-only — or a hysteria2
+// node xray cannot verify). stubListen is the abstract-UDS name for the
+// mandatory no-op socks inbound (xray refuses to start with zero inbounds) —
+// give each live config a distinct name so two instances can coexist.
 //
 // Two own-traffic rules keep the node reachable under the auto_redirect TUN,
 // injected here into the protocol's stream settings:

@@ -59,6 +59,7 @@ proxies:
     password: hy2-placeholder-pass
     sni: hy2.example.org
     skip-cert-verify: true
+    fingerprint: "0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A:0A"
     obfs: salamander
     obfs-password: obfs-placeholder
     alpn:

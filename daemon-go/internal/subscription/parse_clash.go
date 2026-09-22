@@ -18,7 +18,8 @@
 //   - vmess + reality is unconstructable from the v2rayN link shape (no
 //     pbk/sid) and parseVmessURL rejects it — such a node counts unrecognized;
 //   - hysteria2: obfs/obfs-password pass through (hysteria2.go speaks
-//     salamander); alpn has no field in Hysteria2Config and is dropped;
+//     salamander); fingerprint (mihomo's certificate SHA-256 pin) becomes
+//     pinSHA256; alpn/ports have no field and are dropped;
 //   - tuic / anytls: direct query-param mapping;
 //   - any other proxy type (snell, wireguard, …) yields zero links and is
 //     counted unrecognized upstream.
@@ -352,6 +353,9 @@ func clashHysteria2(p map[string]any, host string, port uint16, name string) []s
 	}
 	if clashBool(p, "skip-cert-verify") {
 		q.Set("insecure", "1")
+	}
+	if fp := clashString(p, "fingerprint"); fp != "" { // mihomo: the server certificate's SHA-256 pin
+		q.Set("pinSHA256", fp)
 	}
 	if obfs := clashString(p, "obfs"); obfs != "" {
 		q.Set("obfs", obfs)

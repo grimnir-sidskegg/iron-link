@@ -36,6 +36,7 @@ func TestQUICOutboundsInstantiate(t *testing.T) {
 	profiles := map[string]ilproxy.Profile{
 		"hysteria2": &ilproxy.Hysteria2Config{
 			ServerName: "h2", Address: "203.0.113.10", Port: 443, Password: "pw", SNI: "cdn.example.com",
+			Obfs: "salamander", ObfsPassword: "x", PinSHA256: hy2TestPin,
 		},
 		"tuic": &ilproxy.TUICConfig{
 			ServerName: "tuic", Address: "203.0.113.11", Port: 443,

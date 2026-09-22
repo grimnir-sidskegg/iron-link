@@ -70,13 +70,13 @@ func TestRuntimeDirectTun(t *testing.T) {
 }
 
 // TestRuntimeRealNode204 is the FULL G2 gate: the compiled config for a REAL
-// node (vless/Reality/xhttp — the case that forces xray) carries the host's
-// hijacked traffic end-to-end: TUN → sing-box route → xray-reality →
-// core.Dial → xray → THE REAL NODE → internet → 204. Needs root + the opt-in
-// env (auto_route hijacks host traffic) + a node:
+// node (any xray-routed node: vless/xhttp, or a hysteria2 node pinned to xray)
+// carries the host's hijacked traffic end-to-end: TUN → sing-box route →
+// xray-reality → core.Dial → xray → THE REAL NODE → internet → 204. Needs root
+// + the opt-in env (auto_route hijacks host traffic) + a node:
 //
-//	sudo IRON_LINK_RUNTIME_TEST=1 IRON_LINK_TEST_NODE_URL='vless://…' \
-//	  go test -tags "with_gvisor,with_utls,with_clash_api" -run RuntimeRealNode ./internal/engine/
+//	sudo IRON_LINK_RUNTIME_TEST=1 IRON_LINK_TEST_NODE_URL='<share link>' \
+//	  go test -tags "with_gvisor,with_utls,with_clash_api,with_quic" -run RuntimeRealNode ./internal/engine/
 func TestRuntimeRealNode204(t *testing.T) {
 	if os.Geteuid() != 0 || os.Getenv("IRON_LINK_RUNTIME_TEST") != "1" {
 		t.Skip("needs root + IRON_LINK_RUNTIME_TEST=1 (opens a TUN, hijacks host traffic)")

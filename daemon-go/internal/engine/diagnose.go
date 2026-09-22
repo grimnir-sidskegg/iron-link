@@ -148,9 +148,9 @@ func stageTCP(ctx context.Context, p proxy.Profile) StageResult {
 
 // stageProxy runs the full round trip through the node's core — the protocol
 // handshake and the HTTP first byte (which, given a lazy dial, happen together).
-// Success = the proxy genuinely carries traffic. Native nodes (incl. anytls +
-// the QUIC family) go through an ephemeral sing-box; xhttp nodes through an
-// ephemeral xray. A failure means the tunnel could not open.
+// Success = the proxy genuinely carries traffic. Sing-box-routed nodes go
+// through an ephemeral sing-box; xray-routed nodes through an ephemeral xray. A
+// failure means the tunnel could not open.
 func stageProxy(ctx context.Context, p proxy.Profile, core api.CoreType, stubSuffix, url string, tunExempt bool) StageResult {
 	res := StageResult{Stage: StageProxy}
 

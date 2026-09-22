@@ -11,8 +11,9 @@
 // as raw JSON and exist to Build() protobuf, so they decode nothing useful
 // here — while "streamSettings" reuses conf.StreamConfig, the exact field list
 // xray itself reads (tlsSettings/realitySettings/wsSettings/grpcSettings/
-// xhttpSettings/hysteriaSettings). "mux" is never decoded and "finalmask" is
-// never read: both are per-client tuning, not node identity.
+// xhttpSettings/hysteriaSettings). "mux" is never decoded; of "finalmask" only
+// the hysteria salamander UDP mask is read (dial-critical) — its quicParams and
+// other masks are per-client tuning.
 package subscription
 
 import (
@@ -455,8 +456,9 @@ func xrayShadowsocksLinks(ob *xrayOutboundShell) []pendingLink {
 // endpoint, streamSettings.hysteriaSettings carries {auth, version} and
 // tlsSettings the TLS front. Version 2 becomes hysteria2:// (auth → password);
 // version 1/absent becomes hysteria:// (auth/peer/insecure/alpn — the fields
-// our hysteria.go reads); anything else is unexpressable. The hysteria2:// URI
-// has no alpn slot (QUIC/h3 is implied), so v2 alpn is dropped.
+// our hysteria.go reads); anything else is unexpressable. v2 keeps
+// tlsSettings.pinnedPeerCertSha256 as pinSHA256 and the finalmask salamander
+// mask as obfs/obfs-password; alpn is still dropped (h3 is implied).
 func xrayHysteriaLinks(ob *xrayOutboundShell) []pendingLink {
 	var s struct {
 		Address string `json:"address"`
@@ -467,8 +469,9 @@ func xrayHysteriaLinks(ob *xrayOutboundShell) []pendingLink {
 	}
 	var hy *conf.HysteriaConfig
 	var tc *conf.TLSConfig
+	var fm *conf.FinalMask
 	if sc := ob.Stream; sc != nil {
-		hy, tc = sc.HysteriaSettings, sc.TLSSettings
+		hy, tc, fm = sc.HysteriaSettings, sc.TLSSettings, sc.FinalMask
 	}
 	version, auth := 0, ""
 	if hy != nil {
@@ -483,6 +486,18 @@ func xrayHysteriaLinks(ob *xrayOutboundShell) []pendingLink {
 			}
 			if tc.AllowInsecure {
 				q.Set("insecure", "1")
+			}
+			if tc.PinnedPeerCertSha256 != "" {
+				q.Set("pinSHA256", tc.PinnedPeerCertSha256)
+			}
+		}
+		if fm != nil {
+			for _, m := range fm.Udp {
+				var sal conf.Salamander
+				if m.Type == "salamander" && m.Settings != nil && json.Unmarshal(*m.Settings, &sal) == nil {
+					q.Set("obfs", m.Type)
+					q.Set("obfs-password", sal.Password)
+				}
 			}
 		}
 		userinfo := ""

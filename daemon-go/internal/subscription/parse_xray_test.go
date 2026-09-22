@@ -1,9 +1,11 @@
 package subscription
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
+	"ironlink/daemon/internal/api"
 	"ironlink/daemon/internal/proxy"
 )
 
@@ -151,6 +153,31 @@ func TestParseXrayFixture(t *testing.T) {
 	if hy1.Auth != "hy1-placeholder-auth" || hy1.SNI != "legacy.example.com" ||
 		hy1.ALPN != "hysteria" || hy1.ServerPort() != 9443 {
 		t.Errorf("hysteria v1 fields: %+v", hy1)
+	}
+}
+
+func TestParseXrayHysteria2Pinned(t *testing.T) {
+	// The panel /json shape for a self-signed hysteria2 node: a certificate
+	// pin instead of allowInsecure (which xray-core itself rejects today) plus
+	// the salamander mask under finalmask. Both must survive the link
+	// round-trip, and the pin is what makes the node xray-eligible.
+	body := `{"remarks":"Pinned Hy2","outbounds":[{"tag":"proxy","protocol":"hysteria","settings":{"address":"203.0.113.60","port":443,"version":2},"streamSettings":{"network":"hysteria","security":"tls","tlsSettings":{"serverName":"hy2.example.com","alpn":["h3"],"pinnedPeerCertSha256":"` + hy2TestPin + `"},"hysteriaSettings":{"auth":"hy2-placeholder-auth","version":2},"finalmask":{"udp":[{"type":"salamander","settings":{"password":"obfs-placeholder"}}],"quicParams":{"congestion":"bbr"}}}},{"tag":"direct","protocol":"freedom","settings":{}}]}`
+	o, err := Parse(body, "s", FormatXray)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hy2, ok := findProfile(t, o, "Pinned Hy2").(*proxy.Hysteria2Config)
+	if !ok {
+		t.Fatal("Pinned Hy2 is not a hysteria2 node")
+	}
+	if hy2.PinSHA256 != hy2TestPin || hy2.Obfs != "salamander" || hy2.ObfsPassword != "obfs-placeholder" || hy2.Insecure {
+		t.Errorf("hysteria2 pin/obfs: %+v", hy2)
+	}
+	if hy2.SNI != "hy2.example.com" || hy2.Password != "hy2-placeholder-auth" {
+		t.Errorf("hysteria2 fields: %+v", hy2)
+	}
+	if cores := proxy.EligibleCores(hy2); !slices.Contains(cores, api.CoreXray) {
+		t.Errorf("pinned hysteria2 node must be xray-eligible: %v", cores)
 	}
 }
 
