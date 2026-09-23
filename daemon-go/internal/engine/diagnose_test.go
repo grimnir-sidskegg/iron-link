@@ -136,7 +136,10 @@ const localVlessUUID = "88f2c0dc-a8e3-49f4-89b9-b3b54f1cad3a"
 
 // startLocalVlessServer builds an xray instance with a plain VLESS inbound
 // (no TLS) on a free port and a freedom outbound — a real proxy the diagnosis
-// can complete a handshake against. Returns the instance and its port.
+// can complete a handshake against. Returns the instance and its port. xray
+// 26.7+ blackholes private targets behind a vless inbound by default, so the
+// node explicitly allows loopback — the diagnosis target is a local httptest
+// server.
 func startLocalVlessServer(t *testing.T) (*xcore.Instance, int) {
 	t.Helper()
 	port := freePort(t)
@@ -147,7 +150,8 @@ func startLocalVlessServer(t *testing.T) (*xcore.Instance, int) {
         "protocol": "vless",
         "settings": {"clients": [{"id": "` + localVlessUUID + `"}], "decryption": "none"}
       }],
-      "outbounds": [{"protocol": "freedom", "tag": "direct"}]
+      "outbounds": [{"protocol": "freedom", "tag": "direct",
+        "settings": {"finalRules": [{"action": "allow", "ip": ["127.0.0.0/8"]}]}}]
     }`))
 	if err != nil {
 		t.Fatalf("build local vless server: %v", err)

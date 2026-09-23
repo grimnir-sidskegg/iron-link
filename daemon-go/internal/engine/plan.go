@@ -303,9 +303,8 @@ func planDNS(t Tunables) (map[string]any, string) {
 		resolver = "dns-bootstrap"
 	}
 	return map[string]any{
-		"independent_cache": true,
-		"strategy":          dnsStrategy(t.DNSStrategy, t.IPVersion),
-		"servers":           servers,
+		"strategy": dnsStrategy(t.DNSStrategy, t.IPVersion),
+		"servers":  servers,
 	}, resolver
 }
 

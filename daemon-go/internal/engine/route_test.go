@@ -94,8 +94,8 @@ func TestRouteCompileRealShape(t *testing.T) {
 	if got := dig(t, cfg, "route", "rule_set", 0, "type"); got != "remote" {
 		t.Errorf("rule_set type = %v", got)
 	}
-	if got := dig(t, cfg, "route", "rule_set", 0, "download_detour"); got != "proxy" {
-		t.Errorf("download_detour = %v", got)
+	if got := dig(t, cfg, "route", "rule_set", 0, "http_client", "detour"); got != "proxy" {
+		t.Errorf("http_client.detour = %v", got)
 	}
 
 	// The block outbound exists as the Block target's sink.
@@ -286,4 +286,56 @@ func TestRouteTargetGroup(t *testing.T) {
 	if err != nil || tag != "grp-1" {
 		t.Errorf("group node target = %q, %v; want grp-1, nil", tag, err)
 	}
+}
+
+// TestRouteRuleSetDecodes keeps the remote rule set in the compiled route and
+// hands it to the pinned core: sing-box 1.14 replaced the rule-set
+// `download_detour` key with an inline `http_client`, and only the core's own
+// decoder can confirm the shape we emit (New builds the rule set without
+// fetching it, so no network is touched).
+func TestRouteRuleSetDecodes(t *testing.T) {
+	p := xrayOnlyPlan()
+	p.Routing = realShapedRouting(t)
+	sbCfg, xrayCfg, err := PlanSocksConfigs(p, "127.0.0.1", freePort(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	xinst, err := BuildXray(xrayCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backends := []Backend{newXrayBackend(xinst)}
+	defer closeBackends(backends)
+	b, err := BuildBox(sbCfg, backends, nil)
+	if err != nil {
+		t.Fatalf("the real core rejected the compiled rule set: %v\n%s", err, sbCfg)
+	}
+	b.Close()
+}
+
+// TestTUNPlanDecodes hands the compiled TUN plan — the shape the daemon runs
+// as root — to the pinned core's decoder without starting it (opening the TUN
+// needs root; New only constructs). Deprecation notes surface here at decode
+// time, so a core bump that deprecates a TUN/DNS key we emit fails loudly in
+// the log of this test rather than on every daemon start.
+func TestTUNPlanDecodes(t *testing.T) {
+	p := tunablesPlan()
+	p.Routing = realShapedRouting(t)
+	// The tunables plan embeds no extra node; drop the Node-target rule.
+	p.Routing.Rules = append(p.Routing.Rules[:1], p.Routing.Rules[2:]...)
+	sbCfg, xrayCfg, err := PlanTUNConfigs(p, "tun-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	xinst, err := BuildXray(xrayCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backends := []Backend{newXrayBackend(xinst)}
+	defer closeBackends(backends)
+	b, err := BuildBox(sbCfg, backends, nil)
+	if err != nil {
+		t.Fatalf("the real core rejected the compiled TUN plan: %v\n%s", err, sbCfg)
+	}
+	b.Close()
 }

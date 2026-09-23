@@ -99,6 +99,9 @@ func TestSchemaCompleteAgainstSingBox(t *testing.T) {
 		"network_interface_address":    true,
 		"default_interface_address":    true,
 		"preferred_by":                 true,
+		"source_mac_address":           true,
+		"package_name_regex":           true,
+		"source_hostname":              true,
 	}
 
 	tags := map[string]bool{}

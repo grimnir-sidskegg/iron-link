@@ -10,6 +10,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -118,5 +119,63 @@ func TestRealNodeUniversalLatency(t *testing.T) {
 	t.Logf("%s node latency via %s: %v", p.Kind(), core, d)
 	if d <= 0 {
 		t.Errorf("latency = %v, want > 0", d)
+	}
+}
+
+// TestRealNodeViaSocksParallel is TestRealNodeViaSocks under a page-like load:
+// 16 requests through the node at once. A single stream passes on transports
+// whose multiplexing is broken (an xhttp client older than its server stalls
+// exactly here while its 204 probe and latency stay green), so the gate has to
+// open many streams together to mean anything.
+func TestRealNodeViaSocksParallel(t *testing.T) {
+	v := realNodeFromEnv(t)
+	port := freePort(t)
+	sbCfg, xrayCfg, err := NodeSocksConfigs(v, "127.0.0.1", port)
+	if err != nil {
+		t.Fatalf("NodeSocksConfigs: %v", err)
+	}
+	sess, err := Start(sbCfg, xrayCfg)
+	if err != nil {
+		t.Fatalf("Start (socks + real node): %v", err)
+	}
+	defer sess.Close()
+	d, err := xproxy.SOCKS5("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), nil, xproxy.Direct)
+	if err != nil {
+		t.Fatalf("socks5 dialer: %v", err)
+	}
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext:       d.(xproxy.ContextDialer).DialContext,
+			DisableKeepAlives: true, // one TCP connection per request, like a browser burst
+		},
+		Timeout: 20 * time.Second,
+	}
+	const n = 16
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			resp, err := client.Get("https://www.gstatic.com/generate_204")
+			if err != nil {
+				errs <- err
+				return
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusNoContent {
+				errs <- fmt.Errorf("want HTTP 204, got %d", resp.StatusCode)
+				return
+			}
+			errs <- nil
+		}()
+	}
+	failed := 0
+	var last error
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			failed++
+			last = err
+		}
+	}
+	if failed > 0 {
+		t.Fatalf("%d/%d parallel requests through the real node failed; last: %v", failed, n, last)
 	}
 }

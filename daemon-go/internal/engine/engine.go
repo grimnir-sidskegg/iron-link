@@ -80,6 +80,7 @@ func BuildBox(singBoxCfg []byte, backends []Backend, logSink LogSink) (*box.Box,
 		service.ContextWith(context.Background(), deprecated.NewStderrManager(log.StdLogger())),
 		include.InboundRegistry(), outReg, include.EndpointRegistry(),
 		include.DNSTransportRegistry(), include.ServiceRegistry(),
+		include.CertificateProviderRegistry(),
 	)
 
 	options, err := json.UnmarshalExtendedContext[option.Options](ctx, singBoxCfg)

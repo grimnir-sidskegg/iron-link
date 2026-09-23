@@ -117,7 +117,7 @@ func compileXrayClientNodes(nodes []xrayClientNode, stubListen string) ([]byte, 
 	outbounds = append(outbounds, map[string]any{
 		"tag":      "direct",
 		"protocol": "freedom",
-		"settings": map[string]any{"domainStrategy": "UseIP"},
+		"settings": map[string]any{"targetStrategy": "UseIP"}, // freedom.domainStrategy is deprecated since xray 26.7
 		"streamSettings": map[string]any{
 			"sockopt": map[string]any{"mark": AutoRedirectOutputMark},
 		},

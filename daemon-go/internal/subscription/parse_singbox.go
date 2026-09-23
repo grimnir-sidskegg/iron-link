@@ -151,6 +151,7 @@ func singBoxOptionContext() context.Context {
 		service.ContextWith(context.Background(), deprecated.NewStderrManager(log.StdLogger())),
 		include.InboundRegistry(), include.OutboundRegistry(), include.EndpointRegistry(),
 		include.DNSTransportRegistry(), include.ServiceRegistry(),
+		include.CertificateProviderRegistry(),
 	)
 }
 

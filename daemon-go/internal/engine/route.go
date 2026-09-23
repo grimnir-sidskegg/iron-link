@@ -195,7 +195,9 @@ func (p *SessionPlan) routeBlock(tun bool, domainResolver string) (map[string]an
 		for _, rs := range p.Routing.RuleSets {
 			set := map[string]any{"type": "remote", "tag": rs.Tag, "format": rs.Format, "url": rs.URL}
 			if rs.DownloadDetour != nil && *rs.DownloadDetour != "" {
-				set["download_detour"] = *rs.DownloadDetour
+				// The stored field keeps its name; sing-box 1.14 deprecated the
+				// rule-set `download_detour` key in favour of an inline HTTP client.
+				set["http_client"] = map[string]any{"detour": *rs.DownloadDetour}
 			}
 			sets = append(sets, set)
 		}

@@ -76,9 +76,10 @@ packaging/       Release bundling (assemble.py + per-OS installers, incl. the
 
 ## Build
 
-You need **Go 1.26+** and the **Flutter SDK (Dart 3.12+)**. Both cores are
-pinned — sing-box `v1.13.12` and xray-core `v1.260327.0` — and come in as
-ordinary Go modules, so there is nothing else to install.
+You need **Go 1.27+** and the **Flutter SDK (Dart 3.12+)**. Both cores are
+pinned — sing-box `v1.14.1` and xray-core `v26.7.28` (by commit, as
+`v1.260327.1-0.20260728075948-5ca6f4b7d4dc`) — and come in as ordinary Go
+modules, so there is nothing else to install.
 
 ### Daemon (Go)
 

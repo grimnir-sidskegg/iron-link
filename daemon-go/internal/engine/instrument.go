@@ -28,6 +28,7 @@ import (
 
 	"github.com/sagernet/sing-box/adapter"
 	boxlog "github.com/sagernet/sing-box/log"
+	tun "github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/bufio"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -200,6 +201,27 @@ func (c *TrafficCounter) RoutedPacketConnection(ctx context.Context, conn N.Pack
 		[]N.CountFunc{func(n int64) { c.up.Add(n); rb.up.Add(n) }},
 		[]N.CountFunc{func(n int64) { c.down.Add(n); rb.down.Add(n) }})
 }
+
+// RoutedFlow is RoutedConnection for a pre-matched TUN flow (sing-box 1.14+):
+// the TUN stack forwards such a flow itself, so there is no net.Conn to wrap
+// and the bytes arrive through a FlowTracker instead. Forward = toward the
+// outbound (upload), reverse = back to the app (download); same buckets.
+func (c *TrafficCounter) RoutedFlow(ctx context.Context, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) tun.FlowTracker {
+	return &flowCounter{c: c, rb: c.counterFor(metadata, outcomeOf(matchOutbound))}
+}
+
+// flowCounter feeds a pre-matched flow's byte counts into the session and
+// per-app totals; the lifecycle hooks carry nothing we track.
+type flowCounter struct {
+	c  *TrafficCounter
+	rb *routeBytes
+}
+
+func (f *flowCounter) AttachFlow(tun.FlowHandle)     {}
+func (f *flowCounter) CountForward(n int)            { f.c.up.Add(int64(n)); f.rb.up.Add(int64(n)) }
+func (f *flowCounter) CountReverse(n int)            { f.c.down.Add(int64(n)); f.rb.down.Add(int64(n)) }
+func (f *flowCounter) FlowEstablished()              {}
+func (f *flowCounter) CloseFlow(tun.FlowCloseReason) {}
 
 // LogSink receives one sing-box log line. It is called on the logging path —
 // it must be cheap and MUST NOT block (the daemon's sink hands off to the

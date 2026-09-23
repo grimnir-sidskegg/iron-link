@@ -68,7 +68,6 @@ func singBoxTUNConfig(tunName string) []byte {
 	return []byte(fmt.Sprintf(`{
       "log": {"level":"info"},
       "dns": {
-        "independent_cache": true,
         "strategy": "prefer_ipv4",
         "servers": [
           {"tag":"dns-google","type":"tls","server":"8.8.8.8"},
@@ -112,7 +111,6 @@ func DirectTunValidationConfig(tunName string) (singBox, xray []byte) {
 	singBox = []byte(fmt.Sprintf(`{
       "log": {"level":"info"},
       "dns": {
-        "independent_cache": true,
         "strategy": "prefer_ipv4",
         "servers": [
           {"tag":"dns-google","type":"tls","server":"8.8.8.8"},
