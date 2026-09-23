@@ -14,7 +14,7 @@
 
 _pkgname=iron-link
 pkgname=iron-link-bin
-pkgver=0.3.0
+pkgver=0.3.1
 pkgrel=1
 pkgdesc="Proxy/VPN orchestrator with embedded sing-box + xray (Go daemon + Flutter client)"
 arch=('x86_64')
