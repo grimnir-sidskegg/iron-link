@@ -1,21 +1,21 @@
 {
   "schema": 1,
-  "seq": 1,
+  "seq": 2,
   "channel": "stable",
-  "version": "v0.2.0",
-  "published_at": "2026-08-27T12:00:00Z",
-  "expires_at": "2027-02-23T12:00:00Z",
-  "notes_url": "https://github.com/grimnir-sidskegg/iron-link/releases/tag/v0.2.0",
+  "version": "v0.3.0",
+  "published_at": "2026-09-23T01:53:13Z",
+  "expires_at": "2027-03-22T01:53:13Z",
+  "notes_url": "https://github.com/grimnir-sidskegg/iron-link/releases/tag/v0.3.0",
   "artifacts": [
     {
       "os": "windows",
       "arch": "amd64",
       "kind": "installer",
-      "name": "iron-link-0.2.0-windows-amd64-setup.exe",
-      "size": 24213399,
-      "sha256": "905358db1ece51e8304ca041686dd44e125cc8feb75cb9e0370e31c4e1769a43",
+      "name": "iron-link-0.3.0-windows-amd64-setup.exe",
+      "size": 24600068,
+      "sha256": "c704dc0dc09c2de16681ef3482e6144818ed5f6f4f2ae307d717876b13d3624d",
       "urls": [
-        "https://github.com/grimnir-sidskegg/iron-link/releases/download/v0.2.0/iron-link-0.2.0-windows-amd64-setup.exe"
+        "https://github.com/grimnir-sidskegg/iron-link/releases/download/v0.3.0/iron-link-0.3.0-windows-amd64-setup.exe"
       ]
     },
     {
