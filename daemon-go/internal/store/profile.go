@@ -22,10 +22,27 @@ import (
 //	v1 = the legacy pre-release shape (no longer decodable — the legacy
 //	     path was removed after the only deployment migrated)
 //	v2 = plain encoding/json over the model structs
-const SchemaVersion = 2
+//	v3 = same shape; subscriptions gain last_error and the default refresh
+//	     interval drops from 24 h to 8 h. A v2 file decodes as-is; loading
+//	     one rewrites every subscription interval that is 0 or the old
+//	     24 h default to the new default (see migrateSubscriptionIntervals)
+const SchemaVersion = 3
+
+// DefaultUpdateIntervalSec is the background refresh interval a new
+// subscription gets (8 h); MinUpdateIntervalSec is the smallest interval the
+// wire accepts (10 min) — anything shorter would hammer the provider.
+const (
+	DefaultUpdateIntervalSec uint32 = 28800
+	MinUpdateIntervalSec     uint32 = 600
+)
+
+// legacyUpdateIntervalSec is the pre-v3 default (24 h). It was stored on every
+// subscription but never acted on — there was no scheduler — so a v2 file
+// carrying it is read as "the default", not as a user choice.
+const legacyUpdateIntervalSec uint32 = 86400
 
 // Profile is a user profile: its nodes, subscriptions, routing configs, and
-// the active selections among them. The on-disk JSON (schema v2) is the
+// the active selections among them. The on-disk JSON (schema v3) is the
 // plain encoding/json shape of this struct.
 type Profile struct {
 	SchemaVersion   uint32           `json:"schema_version"`
@@ -54,7 +71,7 @@ func NewProfile(name string) *Profile {
 // normalize repairs nil-vs-empty asymmetries (clients read `[]`, not `null`,
 // for the collection fields) and stamps the current schema version: the
 // in-memory model is ALWAYS current-schema, whatever version the file
-// carried, so a save always writes v2.
+// carried, so a save always writes the current version.
 func (p *Profile) normalize() {
 	p.SchemaVersion = SchemaVersion
 	if p.Subscriptions == nil {
@@ -72,6 +89,12 @@ func (p *Profile) normalize() {
 // refresh parses with — "auto" (or "", in pre-format files) detects; an
 // explicit value forces one parser (validated at the wire boundary, values
 // owned by internal/subscription).
+//
+// The refresh bookkeeping: LastUpdated moves only on a SUCCESSFUL refresh
+// (manual or background) and is what the scheduler measures the interval
+// from; Enabled is the background-refresh toggle (a disabled subscription
+// keeps its nodes, it just is not swept); LastError is the most recent
+// fetch/parse failure, cleared by the next success and by a URL edit.
 type Subscription struct {
 	ID                string    `json:"id"`
 	Name              string    `json:"name"`
@@ -81,19 +104,35 @@ type Subscription struct {
 	Enabled           bool      `json:"enabled"`
 	AllowInvalidCerts bool      `json:"allow_invalid_certs"`
 	Format            string    `json:"format,omitempty"`
+	LastError         string    `json:"last_error,omitempty"`
 }
 
-// NewSubscription builds a subscription with the defaults: enabled, daily
-// interval, verification on, format auto-detected.
+// NewSubscription builds a subscription with the defaults: enabled, the
+// default refresh interval, verification on, format auto-detected.
 func NewSubscription(url, name string) Subscription {
 	return Subscription{
 		ID:                uuid.New(),
 		Name:              name,
 		URL:               url,
 		LastUpdated:       time.Now().UTC(),
-		UpdateIntervalSec: 86400,
+		UpdateIntervalSec: DefaultUpdateIntervalSec,
 		Enabled:           true,
 		Format:            "auto",
+	}
+}
+
+// migrateSubscriptionIntervals is the v2 → v3 step: a pre-v3 file's interval
+// of 0 or the old 24 h default is rewritten to DefaultUpdateIntervalSec. Both
+// values are "never chosen" — 86400 was stamped on every subscription by the
+// old NewSubscription and nothing ever acted on it — so only a value that
+// differs from both survives as a user setting. A v3 file is never touched
+// (a deliberate 24 h must stay 24 h).
+func (p *Profile) migrateSubscriptionIntervals() {
+	for i := range p.Subscriptions {
+		switch p.Subscriptions[i].UpdateIntervalSec {
+		case 0, legacyUpdateIntervalSec:
+			p.Subscriptions[i].UpdateIntervalSec = DefaultUpdateIntervalSec
+		}
 	}
 }
 

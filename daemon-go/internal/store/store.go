@@ -1,8 +1,9 @@
 // Package store is the iron-link profile store (`profiles/<name>.json` +
-// `state.json` under the config root). The on-disk encoding is schema v2
-// (plain encoding/json over the model structs, atomic 0600 files); pre-v2
-// files are rejected with a clear error — the legacy decode path and its
-// startup migration were removed after the only deployment migrated.
+// `state.json` under the config root). The on-disk encoding is schema v3
+// (plain encoding/json over the model structs, atomic 0600 files); a v2 file
+// has the same shape and is upgraded in memory on load; pre-v2 files are
+// rejected with a clear error — the legacy decode path and its startup
+// migration were removed after the only deployment migrated.
 package store
 
 import (
@@ -171,11 +172,13 @@ func renameWithRetry(from, to string) error {
 	}
 }
 
-// LoadProfile reads and decodes profiles/<name>.json (schema v2). The
-// version probe is an explicit GUARD, not a dispatch: Go's case-insensitive
-// JSON field matching would otherwise HALF-decode a pre-v2 file silently —
-// better a clear error. (The v1 decode path and its startup migration were
-// removed after the only deployment migrated.)
+// LoadProfile reads and decodes profiles/<name>.json (schema v2 or v3; the
+// two share one shape). The version probe is an explicit GUARD, not a
+// dispatch: Go's case-insensitive JSON field matching would otherwise
+// HALF-decode a pre-v2 file silently — better a clear error. (The v1 decode
+// path and its startup migration were removed after the only deployment
+// migrated.) A v2 file gets the v3 subscription-interval rewrite in memory;
+// the file itself is upgraded by the next save.
 func (s *Store) LoadProfile(name string) (*Profile, error) {
 	if err := ValidateName(name); err != nil {
 		return nil, err
@@ -199,12 +202,15 @@ func (s *Store) LoadProfile(name string) (*Profile, error) {
 	if err := json.Unmarshal(raw, p); err != nil {
 		return nil, fmt.Errorf("decode profile %q: %w", name, err)
 	}
+	if probe.SchemaVersion < 3 {
+		p.migrateSubscriptionIntervals()
+	}
 	p.normalize()
 	return p, nil
 }
 
 // SaveProfile persists p as profiles/<name>.json (atomic, 0600) in the
-// current (v2, Go-native) shape — normalize stamps the schema version.
+// current (v3, Go-native) shape — normalize stamps the schema version.
 // Pretty-printed so profiles stay human-diffable; raw blocks
 // (routing_configs conditions, xhttp extra) are whitespace-normalized in
 // the process, which reads back identically.

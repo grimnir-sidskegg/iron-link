@@ -317,7 +317,8 @@ var sharedResponses = map[string]Response{
 		{ID: "g4d1", Name: "Auto", SubID: ptr("s1"), Active: false, EligibleCores: []CoreType{}, Kind: NodeKindGroup, Members: []string{"3f2a"}},
 	}},
 	"subscriptions": {Status: StatusSubscriptions, Subscriptions: []SubscriptionInfo{
-		{ID: "s1", Name: "main", URL: "https://example.com/sub", Enabled: true, AllowInvalidCerts: false, LastUpdated: "2026-06-10T12:00:00Z", NodeCount: 42, Format: "auto"},
+		{ID: "s1", Name: "main", URL: "https://example.com/sub", Enabled: true, AllowInvalidCerts: false, LastUpdated: "2026-06-10T12:00:00Z", NodeCount: 42, Format: "auto", UpdateIntervalSec: 28800},
+		{ID: "s2", Name: "backup", URL: "https://example.com/sub2", Enabled: false, AllowInvalidCerts: true, LastUpdated: "2026-06-09T12:00:00Z", NodeCount: 0, Format: "links", UpdateIntervalSec: 86400, LastError: "subscription fetch: HTTP 503"},
 	}},
 	"refreshed": {Status: StatusRefreshed, Refreshed: []RefreshInfo{
 		{Name: "main", Count: 42, Added: 2, Removed: 1, Format: "xray", Entries: 45, Duplicates: 2, Unrecognized: 1},
@@ -337,7 +338,7 @@ var sharedResponses = map[string]Response{
 	"group_config": {Status: StatusGroupConfig, GroupConfig: json.RawMessage(`{"name": "Auto", "all_of_sub": "s1", "probe": {"interval_sec": 180}}`)},
 	// get_node's read half: {name, protocol, profile:{…full config…}}; the
 	// payload bytes must byte-match the fixture (round-trip compares the raw).
-	"node_config": {Status: StatusNodeConfig, NodeConfig: json.RawMessage(`{"name": "Tokyo", "protocol": "vless", "profile": {"server_name": "Tokyo", "uuid": "00000000-0000-0000-0000-000000000001", "address": "198.51.100.7", "port": 443, "encryption": "none", "security": {"kind": "reality", "reality": {"sni": "example.com", "fp": "chrome", "pbk": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH", "sid": "01ab"}}, "transport": {"kind": "tcp"}}}`)},
+	"node_config":    {Status: StatusNodeConfig, NodeConfig: json.RawMessage(`{"name": "Tokyo", "protocol": "vless", "profile": {"server_name": "Tokyo", "uuid": "00000000-0000-0000-0000-000000000001", "address": "198.51.100.7", "port": 443, "encryption": "none", "security": {"kind": "reality", "reality": {"sni": "example.com", "fp": "chrome", "pbk": "AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH", "sid": "01ab"}}, "transport": {"kind": "tcp"}}}`)},
 	"routing_schema": {Status: StatusRoutingSchema, RoutingSchema: routingSchemaLinuxDoc()},
 	"diagnosis": {Status: StatusDiagnosis, Diagnosis: &DiagnosisInfo{
 		Node: "tokyo", OK: false, FailedStage: "tls",

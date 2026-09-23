@@ -5,6 +5,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../app/formats.dart';
 import '../ipc/client.dart';
 import '../wire/wire.dart';
 import 'theme/app_colors.dart';
@@ -727,21 +728,33 @@ const _subscriptionFormats = [
   'auto', 'links', 'xray', 'sing-box', 'clash', 'sip008',
 ];
 
-/// The editable fields [promptEditSubscription] returns. (Auto-refresh
-/// interval will join these once the daemon actually auto-refreshes.)
+/// The background-refresh intervals offered by the editor, in seconds and in
+/// dropdown order (1 h … 7 d).
+const _refreshIntervals = [3600, 14400, 28800, 43200, 86400, 604800];
+
+/// The editable fields [promptEditSubscription] returns.
 class SubscriptionEdit {
   SubscriptionEdit({
     required this.name,
     required this.url,
     required this.enabled,
     required this.allowInvalidCerts,
+    required this.updateIntervalSec,
     this.format,
   });
 
   final String name;
   final String url;
+
+  /// The auto-update toggle. A disabled subscription keeps its nodes; only
+  /// the daemon's background refresh skips it.
   final bool enabled;
   final bool allowInvalidCerts;
+
+  /// The newly chosen refresh interval, or null when unchanged (the
+  /// `update_subscription` verb leaves an absent field alone; a stored value
+  /// below the daemon's floor is never echoed back).
+  final int? updateIntervalSec;
 
   /// The newly chosen parse format, or null when unchanged (the
   /// `update_subscription` verb leaves an absent field alone).
@@ -749,19 +762,28 @@ class SubscriptionEdit {
 }
 
 /// Prompts to edit a subscription's metadata, pre-filled from [sub]; resolves
-/// to null on cancel.
+/// to null on cancel. [now] anchors the "Last updated" age (tests pin it).
 Future<SubscriptionEdit?> promptEditSubscription(
-    BuildContext context, SubscriptionInfo sub) {
+    BuildContext context, SubscriptionInfo sub,
+    {DateTime? now}) {
   final nameController = TextEditingController(text: sub.name);
   final urlController = TextEditingController(text: sub.url);
   var enabled = sub.enabled;
   var allowInvalidCerts = sub.allowInvalidCerts;
   var format = sub.format;
+  var interval = sub.updateIntervalSec;
   // A format this client does not know (a newer daemon) still preselects —
   // it joins the list rather than tripping the dropdown's value assert.
   final formats = _subscriptionFormats.contains(sub.format)
       ? _subscriptionFormats
       : [sub.format, ..._subscriptionFormats];
+  // Same for a stored interval outside the presets (set by another client or
+  // an older default): it is offered as an extra item, in sorted position.
+  final intervals = _refreshIntervals.contains(interval)
+      ? _refreshIntervals
+      : ([..._refreshIntervals, interval]..sort());
+  final lastUpdated = formatRelativeTime(sub.lastUpdated, now: now);
+  final lastError = sub.lastError;
   return showDialog<SubscriptionEdit>(
     context: context,
     builder: (context) => StatefulBuilder(
@@ -769,46 +791,82 @@ Future<SubscriptionEdit?> promptEditSubscription(
         title: const Text('Edit subscription'),
         content: SizedBox(
           width: 480,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                autofocus: true,
-                decoration: const InputDecoration(labelText: 'Name'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: urlController,
-                decoration: const InputDecoration(labelText: 'URL'),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: format,
-                decoration: const InputDecoration(labelText: 'Format'),
-                items: [
-                  for (final f in formats)
-                    DropdownMenuItem(
-                        value: f, child: Text(f == 'auto' ? 'auto (detect)' : f)),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: nameController,
+                  autofocus: true,
+                  decoration: const InputDecoration(labelText: 'Name'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: urlController,
+                  decoration: const InputDecoration(labelText: 'URL'),
+                ),
+                const SizedBox(height: 8),
+                Text('Last updated: $lastUpdated',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: context.iron.dim)),
+                if (lastError != null && lastError.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text('Last attempt failed: $lastError',
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: context.iron.danger)),
                 ],
-                onChanged: (v) => setState(() => format = v ?? format),
-              ),
-              const SizedBox(height: 8),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Enabled'),
-                subtitle:
-                    const Text('Disabled subscriptions are skipped on refresh'),
-                value: enabled,
-                onChanged: (v) => setState(() => enabled = v),
-              ),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Allow invalid TLS certificates'),
-                value: allowInvalidCerts,
-                onChanged: (v) => setState(() => allowInvalidCerts = v ?? false),
-              ),
-            ],
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: format,
+                  decoration: const InputDecoration(labelText: 'Format'),
+                  items: [
+                    for (final f in formats)
+                      DropdownMenuItem(
+                          value: f,
+                          child: Text(f == 'auto' ? 'auto (detect)' : f)),
+                  ],
+                  onChanged: (v) => setState(() => format = v ?? format),
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Auto-update'),
+                  subtitle: const Text(
+                      'Nodes stay; only the background refresh stops'),
+                  value: enabled,
+                  onChanged: (v) => setState(() => enabled = v),
+                ),
+                const SizedBox(height: 4),
+                // Greyed out (not hidden) while auto-update is off, so the
+                // stored interval stays visible and comes back untouched.
+                DropdownButtonFormField<int>(
+                  initialValue: interval,
+                  decoration:
+                      const InputDecoration(labelText: 'Refresh every'),
+                  items: [
+                    for (final secs in intervals)
+                      DropdownMenuItem(
+                          value: secs, child: Text(formatInterval(secs))),
+                  ],
+                  onChanged: enabled
+                      ? (v) => setState(() => interval = v ?? interval)
+                      : null,
+                ),
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Allow invalid TLS certificates'),
+                  value: allowInvalidCerts,
+                  onChanged: (v) =>
+                      setState(() => allowInvalidCerts = v ?? false),
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -827,6 +885,11 @@ Future<SubscriptionEdit?> promptEditSubscription(
                       url: url,
                       enabled: enabled,
                       allowInvalidCerts: allowInvalidCerts,
+                      // Only a CHANGED interval goes on the wire, like the
+                      // format: echoing a stored value below the daemon's
+                      // floor would block every other edit.
+                      updateIntervalSec:
+                          interval == sub.updateIntervalSec ? null : interval,
                       // Only a CHANGED format goes on the wire; null keeps
                       // the daemon's stored pin untouched.
                       format: format == sub.format ? null : format));

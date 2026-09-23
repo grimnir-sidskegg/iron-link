@@ -31,6 +31,10 @@ connection doctor, and TUN/proxy controls.
 - **Built-in observability** — live core logs, per-application traffic broken
   down by outcome (direct / proxy / blocked), and a connectivity doctor with
   one-click remedies.
+- **Subscriptions stay current on their own.** The daemon re-fetches each
+  source on its own schedule (every 8 h by default; the toggle and interval
+  are per source), and reconnects a running session when a refresh changes
+  the nodes it was built from.
 
 Supported protocols: **VLESS, Shadowsocks (including SS-2022), VMess, Trojan,
 Hysteria2, TUIC, Hysteria v1, and AnyTLS** — the full set of share-link

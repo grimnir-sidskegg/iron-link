@@ -268,6 +268,8 @@ class SubscriptionInfo {
     this.lastUpdated,
     this.nodeCount = 0,
     this.format = 'auto',
+    this.updateIntervalSec = 28800,
+    this.lastError,
   });
 
   SubscriptionInfo.fromJson(Map<String, Object?> json)
@@ -278,7 +280,9 @@ class SubscriptionInfo {
         allowInvalidCerts = _bool(json['allow_invalid_certs']),
         lastUpdated = _strOpt(json['last_updated']),
         nodeCount = _int(json['node_count']),
-        format = _str(json['format'], 'auto');
+        format = _str(json['format'], 'auto'),
+        updateIntervalSec = _int(json['update_interval_sec'], 28800),
+        lastError = _strOpt(json['last_error']);
 
   final String id;
   final String name;
@@ -294,6 +298,15 @@ class SubscriptionInfo {
   /// "sip008"), or "auto" when unpinned. The daemon always sends it; the
   /// default only covers an older daemon that does not.
   final String format;
+
+  /// Seconds between background refreshes (the daemon's default is 8 h). Only
+  /// acted on while [enabled]; the default covers an older daemon that does
+  /// not send it.
+  final int updateIntervalSec;
+
+  /// The last fetch/parse failure, or null once a refresh has succeeded since
+  /// (the daemon omits the field when it is clear).
+  final String? lastError;
 }
 
 /// One routing-rule condition field from the daemon's `routing_schema`.

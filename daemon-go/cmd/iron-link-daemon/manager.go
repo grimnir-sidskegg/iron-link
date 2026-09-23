@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -107,10 +108,19 @@ type manager struct {
 	updateTransport http.RoundTripper
 	updateNow       func() time.Time
 	updateDir       string
+
+	// subRetry is the background subscription refresh's failure backoff
+	// (manager_subscriptions.go), keyed by subscription id and kept in
+	// memory only; under mu. subInitialDelay / subTickInterval are the
+	// TEST overrides of that loop's timings (0 = defaults), set before the
+	// loop starts.
+	subRetry        map[string]subscriptionRetry
+	subInitialDelay time.Duration
+	subTickInterval time.Duration
 }
 
 func newManager(st *store.Store) *manager {
-	return &manager{store: st, version: version}
+	return &manager{store: st, version: version, subRetry: map[string]subscriptionRetry{}}
 }
 
 // probeParams resolves the latency-probe endpoint and budget: settings,
@@ -237,8 +247,37 @@ func errResp(msg string) api.Response {
 // activate resolves NAMES from the wire to a stored node (the wire never
 // carries paths or config — that is the trust boundary), compiles the node
 // to native core configs, and starts the Session, REPLACING any running
-// one.
+// one. The resolve/compile half runs with no lock held (prepareActivation);
+// the start half takes mu (startActivationLocked).
 func (m *manager) activate(req api.Request) api.Response {
+	prep, err := m.prepareActivation(req)
+	if err != nil {
+		return errResp(err.Error())
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.startActivationLocked(prep)
+}
+
+// activation is a prepared activate — names resolved, plan built, both core
+// configs compiled — ready to start under mu. It is prepared with no lock
+// held so a caller can start it conditionally: the background subscription
+// reconnect starts one only while the session it was decided against still
+// runs.
+type activation struct {
+	profileName string
+	nodeName    string
+	routing     *routing.Config // nil = no routing, everything through the selector
+	tun         bool
+	plan        engine.SessionPlan
+	sbCfg       []byte
+	xrayCfg     []byte
+}
+
+// prepareActivation is the lock-free half of activate: resolve the profile,
+// node and routing by name, build the plan and compile the core configs.
+func (m *manager) prepareActivation(req api.Request) (activation, error) {
+	var prep activation
 	profileName := ""
 	if req.Profile != nil {
 		profileName = *req.Profile
@@ -246,26 +285,26 @@ func (m *manager) activate(req api.Request) api.Response {
 	if profileName == "" {
 		name, err := m.store.ActiveProfileName()
 		if err != nil {
-			return errResp(err.Error())
+			return prep, err
 		}
 		if name == "" {
-			return errResp("no profile named and no active profile set")
+			return prep, errors.New("no profile named and no active profile set")
 		}
 		profileName = name
 	}
 
 	prof, err := m.store.LoadProfile(profileName)
 	if err != nil {
-		return errResp(err.Error())
+		return prep, err
 	}
 
 	var node *store.Node
 	if req.Node != nil && *req.Node != "" {
 		if node = prof.FindNodeByName(*req.Node); node == nil {
-			return errResp(fmt.Sprintf("node %q not found in profile %q", *req.Node, profileName))
+			return prep, fmt.Errorf("node %q not found in profile %q", *req.Node, profileName)
 		}
 	} else if node = prof.ActiveNode(); node == nil {
-		return errResp(fmt.Sprintf("profile %q has no active node; name one in the request", profileName))
+		return prep, fmt.Errorf("profile %q has no active node; name one in the request", profileName)
 	}
 
 	// Routing: an explicit name must exist; nil falls back to the profile's
@@ -273,7 +312,7 @@ func (m *manager) activate(req api.Request) api.Response {
 	var routingCfg *routing.Config
 	if req.Routing != nil && *req.Routing != "" {
 		if routingCfg = prof.FindRouting(*req.Routing); routingCfg == nil {
-			return errResp(fmt.Sprintf("routing %q not found in profile %q", *req.Routing, profileName))
+			return prep, fmt.Errorf("routing %q not found in profile %q", *req.Routing, profileName)
 		}
 	} else {
 		routingCfg = prof.ActiveRouting()
@@ -281,7 +320,7 @@ func (m *manager) activate(req api.Request) api.Response {
 
 	plan, err := buildPlan(prof, node)
 	if err != nil {
-		return errResp(err.Error())
+		return prep, err
 	}
 	plan.Routing = routingCfg
 	// Rule-set cache + selector persistence live next to the profiles (the
@@ -291,7 +330,7 @@ func (m *manager) activate(req api.Request) api.Response {
 
 	settings, err := m.store.LoadSettings()
 	if err != nil {
-		return errResp(err.Error())
+		return prep, err
 	}
 	tunables := tunablesFromSettings(settings)
 	plan.Tunables = &tunables
@@ -306,19 +345,30 @@ func (m *manager) activate(req api.Request) api.Response {
 		// Fail fast with a clear message if we can't open a TUN (not elevated)
 		// instead of surfacing a buried access-denied from sing-box.
 		if err := engine.EnsureTUNPrivilege(); err != nil {
-			return errResp(err.Error())
+			return prep, err
 		}
 		sbCfg, xrayCfg, err = engine.PlanTUNConfigs(plan, tunInterfaceName())
 	} else {
 		sbCfg, xrayCfg, err = engine.PlanSocksConfigs(plan, "127.0.0.1", socksPort)
 	}
 	if err != nil {
-		return errResp(err.Error())
+		return prep, err
 	}
+	return activation{
+		profileName: profileName,
+		nodeName:    node.DisplayName(),
+		routing:     routingCfg,
+		tun:         tun,
+		plan:        plan,
+		sbCfg:       sbCfg,
+		xrayCfg:     xrayCfg,
+	}, nil
+}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+// startActivationLocked is the locked half of activate: stop the running
+// session, if any, start the prepared one and record it as the active
+// context. Callers hold mu.
+func (m *manager) startActivationLocked(prep activation) api.Response {
 	// Replace semantics: a running session is stopped first, so Activate is
 	// also "switch profile/node/mode".
 	if m.sess != nil {
@@ -332,7 +382,7 @@ func (m *manager) activate(req api.Request) api.Response {
 		m.active = nil
 	}
 
-	sess, err := engine.StartWithOptions(sbCfg, xrayCfg, engine.StartOptions{LogSink: m.logSink})
+	sess, err := engine.StartWithOptions(prep.sbCfg, prep.xrayCfg, engine.StartOptions{LogSink: m.logSink})
 	if err != nil {
 		m.broadcastStateLocked()
 		return errResp("start session: " + err.Error())
@@ -349,22 +399,22 @@ func (m *manager) activate(req api.Request) api.Response {
 	// so the live node is ALWAYS the activation intent. A no-op when the cache
 	// already agrees (early return, no connection interrupt) and harmless for a
 	// selector-less single-node session (the error is ignored).
-	_ = sess.SelectOutbound(plan.ActiveTag)
+	_ = sess.SelectOutbound(prep.plan.ActiveTag)
 
 	m.sess = sess
-	m.plan = plan
+	m.plan = prep.plan
 	m.activations++
 	m.startedAt = time.Now()
-	nodeName := node.DisplayName()
+	profileName, nodeName := prep.profileName, prep.nodeName
 	m.active = &api.PersistedEntry{
 		Profile: &profileName,
 		Node:    &nodeName,
-		Tun:     tun,
+		Tun:     prep.tun,
 	}
 	// Persist the CANONICAL routing name (the request may have passed an id,
 	// or nil resolved to the active routing).
-	if routingCfg != nil {
-		m.active.Routing = &routingCfg.Name
+	if prep.routing != nil {
+		m.active.Routing = &prep.routing.Name
 	}
 	m.saveLastSessionLocked()
 	m.startTrafficEmitterLocked()
@@ -814,10 +864,23 @@ func (m *manager) status() api.Response {
 		Status:         api.StatusRunning,
 		DaemonVersion:  m.version,
 		Entries:        m.entriesLocked(),
-		Active:         m.active,
+		Active:         m.activeCopyLocked(),
 		ActiveNodeLive: m.liveNodeNameLocked(),
 	}
 	return resp
+}
+
+// activeCopyLocked returns a copy of the persisted activation context for a
+// reply or event, or nil when idle. The copy matters: replies and broadcast
+// events are JSON-encoded by other goroutines after mu is released, while a
+// live switch (or a subscription relabel) edits m.active in place. Callers
+// hold mu.
+func (m *manager) activeCopyLocked() *api.PersistedEntry {
+	if m.active == nil {
+		return nil
+	}
+	cp := *m.active
+	return &cp
 }
 
 // liveNodeNameLocked resolves the IN-PROCESS live node's client-facing display
@@ -898,7 +961,7 @@ func (m *manager) Snapshot() api.Event {
 }
 
 func (m *manager) stateEventLocked() api.Event {
-	ev := api.Event{Event: api.EventState, Active: m.active}
+	ev := api.Event{Event: api.EventState, Active: m.activeCopyLocked()}
 	if m.sess != nil {
 		ev.Entries = m.entriesLocked()
 		ev.ActiveNodeLive = m.liveNodeNameLocked()

@@ -115,6 +115,9 @@ func run(ctx context.Context, logw io.Writer) error {
 	// The background update check (jittered daily, fail-soft, gated by the
 	// auto_update / transport settings at every tick).
 	go m.updateLoop(ctx)
+	// The background subscription refresh (a sweep per minute over the
+	// active profile; each subscription on its own interval, fail-soft).
+	go m.subscriptionLoop(ctx)
 
 	select {
 	case <-ctx.Done():

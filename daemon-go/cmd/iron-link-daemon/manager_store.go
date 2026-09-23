@@ -439,15 +439,23 @@ func (m *manager) listSubscriptions(req api.Request) api.Response {
 		if err != nil {
 			format = subscription.FormatAuto
 		}
+		// The zero time (never refreshed) goes out as an empty stamp, not
+		// as year 1 — clients show "never" for an empty one.
+		lastUpdated := ""
+		if !s.LastUpdated.IsZero() {
+			lastUpdated = s.LastUpdated.Format(time.RFC3339)
+		}
 		infos = append(infos, api.SubscriptionInfo{
 			ID:                s.ID,
 			Name:              s.Name,
 			URL:               s.URL,
 			Enabled:           s.Enabled,
 			AllowInvalidCerts: s.AllowInvalidCerts,
-			LastUpdated:       s.LastUpdated.Format(time.RFC3339),
+			LastUpdated:       lastUpdated,
 			NodeCount:         count,
 			Format:            string(format),
+			UpdateIntervalSec: s.UpdateIntervalSec,
+			LastError:         s.LastError,
 		})
 	}
 	return api.Response{Status: api.StatusSubscriptions, Subscriptions: infos}
@@ -534,10 +542,15 @@ func (m *manager) removeSubscription(req api.Request) api.Response {
 
 // updateSubscription edits a stored subscription's metadata in place — a nil
 // field is left unchanged (the client sends only what it edited). It does NOT
-// re-fetch; a URL change takes effect on the next refresh.
+// re-fetch; a URL change takes effect on the next refresh and clears the
+// stored last_error (that error belonged to the old URL). The interval has a
+// floor (store.MinUpdateIntervalSec); a shorter one is rejected, not clamped.
 func (m *manager) updateSubscription(req api.Request) api.Response {
 	if req.Sub == nil || *req.Sub == "" {
 		return errResp("update_subscription requires a subscription id or name")
+	}
+	if req.UpdateIntervalSec != nil && *req.UpdateIntervalSec < store.MinUpdateIntervalSec {
+		return errResp(fmt.Sprintf("update_interval_sec must be at least %d seconds", store.MinUpdateIntervalSec))
 	}
 	return m.withProfile(req, func(name string, p *store.Profile) (api.Response, error) {
 		sub := p.FindSubscription(*req.Sub)
@@ -547,8 +560,9 @@ func (m *manager) updateSubscription(req api.Request) api.Response {
 		if req.Name != nil && *req.Name != "" {
 			sub.Name = *req.Name
 		}
-		if req.URL != nil && *req.URL != "" {
+		if req.URL != nil && *req.URL != "" && *req.URL != sub.URL {
 			sub.URL = *req.URL
+			sub.LastError = ""
 		}
 		if req.AllowInvalidCerts != nil {
 			sub.AllowInvalidCerts = *req.AllowInvalidCerts
@@ -716,7 +730,8 @@ func (m *manager) removeRouting(req api.Request) api.Response {
 }
 
 // publishRefreshLocked converts pipeline results to the wire shape and emits
-// a SubscriptionUpdated event per successful refresh. Callers hold m.mu.
+// a SubscriptionUpdated event per successful refresh (a skipped or discarded
+// result changed nothing, so it emits none). Callers hold m.mu.
 func (m *manager) publishRefreshLocked(results []subscription.Result) []api.RefreshInfo {
 	infos := make([]api.RefreshInfo, 0, len(results))
 	for _, r := range results {
@@ -726,7 +741,7 @@ func (m *manager) publishRefreshLocked(results []subscription.Result) []api.Refr
 			Format: r.Format, Entries: r.Entries,
 			Duplicates: r.Duplicates, Unrecognized: r.Unrecognized,
 		})
-		if r.Err == "" && !r.Skipped && m.hub != nil {
+		if r.Err == "" && !r.Skipped && !r.Discarded && m.hub != nil {
 			m.hub.Broadcast(api.Event{
 				Event: api.EventSubscriptionUpdated,
 				SubID: r.SubID, Added: r.Added, Removed: r.Removed, Total: r.Count,

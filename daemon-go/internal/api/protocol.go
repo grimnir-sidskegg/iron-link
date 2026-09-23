@@ -338,11 +338,18 @@ type SubscriptionInfo struct {
 	URL               string `json:"url"`
 	Enabled           bool   `json:"enabled"`
 	AllowInvalidCerts bool   `json:"allow_invalid_certs"`
-	// LastUpdated is RFC 3339.
+	// LastUpdated is RFC 3339 — the last SUCCESSFUL refresh; empty when the
+	// subscription has never refreshed successfully.
 	LastUpdated string `json:"last_updated"`
 	NodeCount   int    `json:"node_count"`
 	// Format is the stored body dialect ("auto" unless the user pinned one).
 	Format string `json:"format"`
+	// UpdateIntervalSec is the background refresh interval; Enabled above is
+	// the toggle for that refresh (a disabled subscription keeps its nodes).
+	UpdateIntervalSec uint32 `json:"update_interval_sec"`
+	// LastError is the most recent fetch/parse failure, absent when the last
+	// refresh succeeded (or the URL was edited since).
+	LastError string `json:"last_error,omitempty"`
 }
 
 // RefreshInfo is one subscription's refresh outcome.

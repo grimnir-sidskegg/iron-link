@@ -1062,6 +1062,7 @@ class _HomePageState extends State<HomePage> {
         url: edit.url,
         enabled: edit.enabled,
         allowInvalidCerts: edit.allowInvalidCerts,
+        updateIntervalSec: edit.updateIntervalSec,
         format: edit.format,
       ),
     );

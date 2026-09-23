@@ -320,10 +320,23 @@ final responseCases = <String, void Function(Response)>{
   },
   'responses/subscriptions.json': (r) {
     final subs = (r as SubscriptionsResponse).subscriptions;
-    expect(subs, hasLength(1));
+    expect(subs, hasLength(2));
+    expect(subs[0].id, 's1');
+    expect(subs[0].enabled, isTrue);
     expect(subs[0].lastUpdated, '2026-06-10T12:00:00Z');
     expect(subs[0].nodeCount, 42);
     expect(subs[0].format, 'auto');
+    expect(subs[0].updateIntervalSec, 28800);
+    // last_error is omitted while clear.
+    expect(subs[0].lastError, isNull);
+    expect(subs[1].id, 's2');
+    expect(subs[1].enabled, isFalse);
+    expect(subs[1].allowInvalidCerts, isTrue);
+    expect(subs[1].lastUpdated, '2026-06-09T12:00:00Z');
+    expect(subs[1].nodeCount, 0);
+    expect(subs[1].format, 'links');
+    expect(subs[1].updateIntervalSec, 86400);
+    expect(subs[1].lastError, 'subscription fetch: HTTP 503');
   },
   'responses/settings.json': (r) {
     final s = (r as SettingsResponse).settings;

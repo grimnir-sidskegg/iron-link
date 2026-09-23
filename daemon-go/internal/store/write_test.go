@@ -62,7 +62,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Errorf("routing rule content lost: %s", rj)
 	}
 
-	// The saved file is schema v2, not the legacy v1 shape.
+	// The saved file is the current schema, not the legacy v1 shape.
 	raw, err := os.ReadFile(filepath.Join(s.baseDir, "profiles", "copy.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -73,8 +73,8 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.SchemaVersion != 2 {
-		t.Errorf("saved schema_version = %d, want 2", doc.SchemaVersion)
+	if doc.SchemaVersion != SchemaVersion {
+		t.Errorf("saved schema_version = %d, want %d", doc.SchemaVersion, SchemaVersion)
 	}
 	if !strings.Contains(string(raw), `"vless"`) {
 		t.Errorf("saved file lacks the v2 \"vless\" key:\n%s", raw)

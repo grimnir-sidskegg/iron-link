@@ -137,6 +137,11 @@ type Result struct {
 	Removed int
 	// Skipped: the subscription is disabled and the refresh was a sweep.
 	Skipped bool
+	// Discarded: the fetch outcome no longer applies — the subscription was
+	// removed or its URL edited while the fetch was in flight (Apply). Nothing
+	// was written; not an error, not a success. Never set by Refresh, which
+	// fetches and applies against one profile in one go.
+	Discarded bool
 	// Err is the fetch/parse failure, "" on success. The old nodes are kept.
 	Err string
 	// The parse accounting on success (see Outcome): the dialect that
@@ -147,11 +152,115 @@ type Result struct {
 	Unrecognized int
 }
 
+// FetchResult is the outcome of one FetchSubscription: the body a later
+// Apply parses, or the fetch error. SubID/Name/URL are copied from the
+// subscription the fetch was issued for — URL is what Apply compares against
+// the stored one to detect an edit that happened meanwhile. Format is the
+// dialect the fetch was gated on (the "/json" probe) and the one Apply parses
+// with.
+type FetchResult struct {
+	SubID  string
+	Name   string
+	URL    string
+	Format Format
+	Body   string
+	Err    error
+}
+
+// FetchSubscription is the network half of a refresh: it resolves the stored
+// format and obtains the body (the "/json" probe included) for a COPY of the
+// subscription, touching no profile. The caller holds no store lock while
+// this runs — a fetch can take the full fetchTimeout — and hands the result
+// to Apply under one. A failed fetch is reported in FetchResult.Err, never
+// as a panic or a partial body.
+func FetchSubscription(ctx context.Context, sub store.Subscription, ua string) FetchResult {
+	// A stored format is validated at the wire boundary; a value this
+	// build no longer knows (downgrade) falls back to detection. Resolve it
+	// BEFORE the fetch so the panel "/json" probe is gated on it.
+	format, err := ParseFormat(sub.Format)
+	if err != nil {
+		format = FormatAuto
+	}
+	fr := FetchResult{SubID: sub.ID, Name: sub.Name, URL: sub.URL, Format: format}
+	fr.Body, fr.Err = fetchSubscriptionBody(ctx, &sub, format, ua)
+	return fr
+}
+
+// Apply is the store half of a refresh: it lands one FetchResult on p, the
+// profile as it is NOW (freshly loaded by the caller, who persists it after).
+// The subscription is found by id; when it is gone, or its URL differs from
+// the one fetched, the result is stale and is DISCARDED untouched
+// (Result.Discarded) — an error from the old URL must not be pinned on the
+// new one. Otherwise:
+//
+//   - a fetch error or a parse failure (unrecognized dialect OR zero usable
+//     nodes) records Subscription.LastError and Result.Err; the old nodes and
+//     LastUpdated stay — an empty body must never masquerade as a successful
+//     empty subscription;
+//   - a success replaces the subscription's nodes (see reconcile for what
+//     survives), stamps LastUpdated = now and clears LastError.
+func Apply(p *store.Profile, fr FetchResult) Result {
+	res := Result{SubID: fr.SubID, Name: fr.Name}
+	sub := findSubscriptionByID(p, fr.SubID)
+	if sub == nil || sub.URL != fr.URL {
+		res.Discarded = true
+		return res
+	}
+	res.Name = sub.Name
+	if fr.Err != nil {
+		sub.LastError = fr.Err.Error()
+		res.Err = sub.LastError
+		return res
+	}
+	outcome, err := Parse(fr.Body, sub.ID, fr.Format)
+	if err != nil {
+		sub.LastError = err.Error()
+		res.Err = sub.LastError
+		return res
+	}
+	// Order matters: reconcile the dialable nodes FIRST so their UUIDs are
+	// final, THEN resolve group membership to those UUIDs, THEN reconcile the
+	// groups (a provider group keeps its UUID across a refresh by name). Both
+	// reconciles read the OLD p.Nodes, so both must precede the replace.
+	newNodes := outcome.Nodes
+	reconcile(p, sub.ID, newNodes)
+	groupNodes := materializeGroups(outcome.Groups, newNodes, sub.ID)
+	reconcile(p, sub.ID, groupNodes)
+	all := make([]store.Node, 0, len(newNodes)+len(groupNodes))
+	all = append(all, newNodes...)
+	all = append(all, groupNodes...)
+	added, removed := diffNodes(p, sub.ID, all)
+
+	p.ReplaceSubscriptionNodes(sub.ID, all)
+	sub.LastUpdated = time.Now().UTC()
+	sub.LastError = ""
+	// Count is the DIALABLE node count; groups are not counted (diffNodes
+	// skips them too, so Added/Removed stay dialable-only).
+	res.Count, res.Added, res.Removed = len(newNodes), added, removed
+	res.Format = string(outcome.Format)
+	res.Entries, res.Duplicates, res.Unrecognized = outcome.Entries, outcome.Duplicates, outcome.Unrecognized
+	return res
+}
+
+// findSubscriptionByID is the id-only lookup Apply needs (Profile's
+// FindSubscription also matches by name, which a stale result must not).
+func findSubscriptionByID(p *store.Profile, id string) *store.Subscription {
+	for i := range p.Subscriptions {
+		if p.Subscriptions[i].ID == id {
+			return &p.Subscriptions[i]
+		}
+	}
+	return nil
+}
+
 // Refresh re-fetches subscriptions in p and replaces their nodes, carrying
 // each surviving node's STABLE UUID and its per-node core override across the
 // refresh (matched by prefsKey — protocol+credential+endpoint+stream). Mutates
 // p in place; THE CALLER PERSISTS. One subscription's failure is reported in
-// its Result and does not abort the others.
+// its Result (and in the subscription's LastError) and does not abort the
+// others. This is FetchSubscription + Apply per subscription, back to back on
+// the one profile — the verb path, where the caller already holds the store
+// lock for the duration.
 //
 // only == "" sweeps every ENABLED subscription; a non-empty only (id or name)
 // refreshes exactly that subscription even when disabled — an explicit
@@ -159,7 +268,7 @@ type Result struct {
 func Refresh(ctx context.Context, p *store.Profile, only, ua string) []Result {
 	var results []Result
 	for i := range p.Subscriptions {
-		sub := &p.Subscriptions[i]
+		sub := p.Subscriptions[i]
 		if only != "" {
 			if sub.ID != only && sub.Name != only {
 				continue
@@ -168,52 +277,7 @@ func Refresh(ctx context.Context, p *store.Profile, only, ua string) []Result {
 			results = append(results, Result{SubID: sub.ID, Name: sub.Name, Skipped: true})
 			continue
 		}
-
-		// A stored format is validated at the wire boundary; a value this
-		// build no longer knows (downgrade) falls back to detection. Resolve it
-		// BEFORE the fetch so the Remnawave "/json" probe is gated on it.
-		format, err := ParseFormat(sub.Format)
-		if err != nil {
-			format = FormatAuto
-		}
-		body, err := fetchSubscriptionBody(ctx, sub, format, ua)
-		if err != nil {
-			results = append(results, Result{SubID: sub.ID, Name: sub.Name, Err: err.Error()})
-			continue
-		}
-		// A parse failure — unrecognized dialect OR zero usable nodes — is a
-		// failed refresh: old nodes stay, last_updated stays. An empty body
-		// must never masquerade as a successful empty subscription.
-		outcome, err := Parse(body, sub.ID, format)
-		if err != nil {
-			results = append(results, Result{SubID: sub.ID, Name: sub.Name, Err: err.Error()})
-			continue
-		}
-		// Order matters: reconcile the dialable nodes FIRST so their UUIDs are
-		// final, THEN resolve group membership to those UUIDs, THEN reconcile the
-		// groups (a provider group keeps its UUID across a refresh by name). Both
-		// reconciles read the OLD p.Nodes, so both must precede the replace.
-		newNodes := outcome.Nodes
-		reconcile(p, sub.ID, newNodes)
-		groupNodes := materializeGroups(outcome.Groups, newNodes, sub.ID)
-		reconcile(p, sub.ID, groupNodes)
-		all := make([]store.Node, 0, len(newNodes)+len(groupNodes))
-		all = append(all, newNodes...)
-		all = append(all, groupNodes...)
-		added, removed := diffNodes(p, sub.ID, all)
-
-		p.ReplaceSubscriptionNodes(sub.ID, all)
-		sub.LastUpdated = time.Now().UTC()
-		results = append(results, Result{
-			SubID: sub.ID, Name: sub.Name,
-			// Count is the DIALABLE node count; groups are not counted (diffNodes
-			// skips them too, so Added/Removed stay dialable-only).
-			Count: len(newNodes), Added: added, Removed: removed,
-			Format:       string(outcome.Format),
-			Entries:      outcome.Entries,
-			Duplicates:   outcome.Duplicates,
-			Unrecognized: outcome.Unrecognized,
-		})
+		results = append(results, Apply(p, FetchSubscription(ctx, sub, ua)))
 	}
 	return results
 }
