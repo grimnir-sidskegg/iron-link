@@ -3,11 +3,12 @@
 # Run this before committing daemon-go or wire changes:
 #   scripts/check.sh
 #
-# Covers: go vet, unit tests (live TUN/node tests are env-gated and skip
-# themselves; the Go wire-contract fixture suite runs here too), and the 3-OS
-# cross-build matrix (green Linux != green Windows — the sing-tun pin burned us
-# once). The Dart half of the wire contract lives in client-flutter/ (run
-# `flutter test` there).
+# Covers: go vet (host and GOOS=windows — the service code is Windows-only and
+# a cross-build alone does not vet it), unit tests (live TUN/node tests are
+# env-gated and skip themselves; the Go wire-contract fixture suite runs here
+# too), and the 3-OS cross-build matrix (green Linux != green Windows — the
+# sing-tun pin burned us once). The Dart half of the wire contract lives in
+# client-flutter/ (run `flutter test` there).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -21,6 +22,9 @@ echo "== go vet (-tags ${TAGS})"
 
 echo "== go test (unit; live tests skip without IRON_LINK_RUNTIME_TEST etc.)"
 (cd daemon-go && go test -tags "$TAGS" ./...)
+
+echo "== go vet (GOOS=windows, CGO_ENABLED=0)"
+(cd daemon-go && CGO_ENABLED=0 GOOS=windows go vet -tags "$TAGS" ./...)
 
 echo "== cross-build matrix (CGO_ENABLED=0)"
 for goos in linux windows darwin; do

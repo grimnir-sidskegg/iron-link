@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"syscall"
+	"time"
 
 	"ironlink/daemon/internal/ipc"
 	"ironlink/daemon/internal/store"
@@ -105,7 +106,8 @@ func run(ctx context.Context, logw io.Writer) error {
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(l) }()
-	fmt.Fprintf(logw, "iron-link-daemon listening at %s\n", addr)
+	fmt.Fprintf(logw, "%s listening at %s (%s)\n",
+		versionString(), addr, time.Now().UTC().Format(time.RFC3339))
 
 	// Restore the previous session (best-effort, async — activation can take
 	// seconds and must not block the control plane).
@@ -119,6 +121,7 @@ func run(ctx context.Context, logw io.Writer) error {
 		// Graceful shutdown: deferred l.Close() unblocks Serve; a running
 		// session must not outlive the daemon (it holds the TUN/auto_route)
 		// but the last-session record SURVIVES so the next start restores it.
+		fmt.Fprintf(logw, "iron-link-daemon stopping (%s)\n", time.Now().UTC().Format(time.RFC3339))
 		m.shutdown()
 		return nil
 	case err := <-errc:

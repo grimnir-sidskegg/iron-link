@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -8,6 +10,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,6 +102,30 @@ func freePort(t *testing.T) int {
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port
+}
+
+// TestRunLogsStartAndStop pins the lines run() writes to its log sink: the
+// version prefix and "listening at <addr>" on startup, and the stop line on
+// a graceful exit. The context is cancelled up front, so run() listens, logs,
+// and shuts down with no timing dependence.
+func TestRunLogsStartAndStop(t *testing.T) {
+	t.Setenv("IRON_LINK_CONFIG_DIR", t.TempDir())
+	addr := filepath.Join(sockDir(t), "s.sock")
+	if runtime.GOOS == "windows" {
+		addr = fmt.Sprintf(`\\.\pipe\iron-link-test-%d`, os.Getpid())
+	}
+	t.Setenv("IRON_LINK_SOCKET", addr)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var log bytes.Buffer
+	if err := run(ctx, &log); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{versionString() + " listening at " + addr + " (", "iron-link-daemon stopping ("} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("log %q lacks %q", log.String(), want)
+		}
+	}
 }
 
 // TestBuildPlanEmbedsAllXrayNodes pins the M1 invariant: EVERY xray-eligible

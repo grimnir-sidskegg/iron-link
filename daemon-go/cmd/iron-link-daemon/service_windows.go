@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
@@ -63,10 +64,19 @@ func handleServiceCommand(args []string) error {
 
 // runService runs under the SCM. A service has no console, so the daemon's
 // status/log output goes to <config-dir>\daemon.log (install pointed
-// IRON_LINK_CONFIG_DIR at the user's profile).
+// IRON_LINK_CONFIG_DIR at the user's profile). Panics and anything else
+// written to stderr go there too: os.Stderr covers Go code, but the runtime
+// prints fatal errors through GetStdHandle(STD_ERROR_HANDLE), so the handle
+// itself is redirected too. The file is never closed: os.Stderr
+// points at it until the process exits, and main reports svc.Run's error
+// through os.Stderr after this function returns.
 func runService() error {
-	logw, closeLog := serviceLog()
-	defer closeLog()
+	var logw io.Writer = os.Stderr
+	if f := serviceLog(); f != nil {
+		logw = f
+		os.Stderr = f
+		_ = windows.SetStdHandle(windows.STD_ERROR_HANDLE, windows.Handle(f.Fd()))
+	}
 	return svc.Run(serviceName, &ironLinkService{logw: logw})
 }
 
@@ -107,18 +117,17 @@ func (s *ironLinkService) Execute(_ []string, r <-chan svc.ChangeRequest, change
 	}
 }
 
-func serviceLog() (io.Writer, func()) {
+// serviceLog opens <config-dir>\daemon.log for appending. It returns nil when
+// the directory or the file cannot be opened; the caller then keeps stderr.
+func serviceLog() *os.File {
 	dir, err := store.DefaultDir()
 	if err != nil {
-		return os.Stderr, func() {}
+		return nil
 	}
 	_ = os.MkdirAll(dir, 0o755)
-	f, err := os.OpenFile(filepath.Join(dir, "daemon.log"),
+	f, _ := os.OpenFile(filepath.Join(dir, "daemon.log"),
 		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return os.Stderr, func() {}
-	}
-	return f, func() { _ = f.Close() }
+	return f
 }
 
 // installService registers the auto-start service. configDir (default: the
@@ -147,19 +156,33 @@ func installService(args []string) error {
 	if existing, err := m.OpenService(serviceName); err == nil {
 		// Already installed (re-install / upgrade): refresh the binary path +
 		// environment instead of failing, so the installer is idempotent.
+		// CreateService quotes the path itself; UpdateConfig writes it as
+		// given, so quote it here the same way (the default install dir,
+		// Program Files, contains a space).
 		defer existing.Close()
-		if cfg, cerr := existing.Config(); cerr == nil {
-			cfg.BinaryPathName = exe
-			cfg.StartType = mgr.StartAutomatic
-			_ = existing.UpdateConfig(cfg)
+		cfg, err := existing.Config()
+		if err != nil {
+			return fmt.Errorf("read service config: %w", err)
+		}
+		cfg.BinaryPathName = windows.EscapeArg(exe)
+		cfg.StartType = mgr.StartAutomatic
+		cfg.DelayedAutoStart = true
+		if err := existing.UpdateConfig(cfg); err != nil {
+			return fmt.Errorf("update service config: %w", err)
+		}
+		if err := hardenService(existing); err != nil {
+			return err
 		}
 		return setServiceEnv(serviceName, serviceEnv(configDir))
 	}
+	// DelayedAutoStart: the SCM starts the service after the other auto-start
+	// services, outside the boot-time start window, from the next boot on.
 	srv, err := m.CreateService(serviceName, exe, mgr.Config{
-		DisplayName:  serviceDisplayName,
-		Description:  serviceDescription,
-		StartType:    mgr.StartAutomatic,
-		ErrorControl: mgr.ErrorNormal,
+		DisplayName:      serviceDisplayName,
+		Description:      serviceDescription,
+		StartType:        mgr.StartAutomatic,
+		DelayedAutoStart: true,
+		ErrorControl:     mgr.ErrorNormal,
 	})
 	if err != nil {
 		return err
@@ -169,6 +192,31 @@ func installService(args []string) error {
 	if err := setServiceEnv(serviceName, serviceEnv(configDir)); err != nil {
 		_ = srv.Delete()
 		return fmt.Errorf("set service environment: %w", err)
+	}
+	if err := hardenService(srv); err != nil {
+		_ = srv.Delete()
+		return err
+	}
+	return nil
+}
+
+// hardenService sets the SCM failure actions: restart the service after a
+// crash, and (with the non-crash flag) after an exit with a non-zero code.
+// The SCM repeats the last action for every failure past the list, so the
+// last delay is the generous one; the reset period is in seconds and clears
+// the failure count after a day without failures. The non-crash flag is
+// read by the SCM at the next boot.
+func hardenService(srv *mgr.Service) error {
+	actions := []mgr.RecoveryAction{
+		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
+		{Type: mgr.ServiceRestart, Delay: 30 * time.Second},
+		{Type: mgr.ServiceRestart, Delay: 60 * time.Second},
+	}
+	if err := srv.SetRecoveryActions(actions, 86400); err != nil {
+		return fmt.Errorf("set recovery actions: %w", err)
+	}
+	if err := srv.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
+		return fmt.Errorf("set recovery on non-crash failures: %w", err)
 	}
 	return nil
 }
@@ -197,6 +245,12 @@ func uninstallService() error {
 		return fmt.Errorf("service %q is not installed", serviceName)
 	}
 	defer srv.Close()
+	// Disable first (best-effort) so a recovery restart queued by the SCM
+	// cannot bring the service back between Stop and Delete.
+	if cfg, err := srv.Config(); err == nil {
+		cfg.StartType = mgr.StartDisabled
+		_ = srv.UpdateConfig(cfg)
+	}
 	_, _ = srv.Control(svc.Stop) // best-effort; ignore "not running"
 	return srv.Delete()
 }
