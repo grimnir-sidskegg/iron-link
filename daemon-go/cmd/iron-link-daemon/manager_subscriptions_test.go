@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -300,8 +301,8 @@ func TestSubscriptionSweepFutureStampKeepsBackoff(t *testing.T) {
 // whose profile cannot be written is a failed attempt — last_updated never
 // landed, so without a hold the next sweep would fetch again.
 func TestSubscriptionSweepUnsavedRefreshBacksOff(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores directory mode bits; the unwritable profiles dir cannot be staged")
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("the unwritable profiles dir is staged with directory mode bits: Windows has none and root bypasses them")
 	}
 	prov := newSubProvider(t, subLinkA)
 	m := subLoopManager(t, testSubscription("sub-1", prov.srv.URL, time.Now().UTC().Add(-2*time.Hour), 3600, true))
