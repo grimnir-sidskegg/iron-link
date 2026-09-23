@@ -116,6 +116,14 @@ class DaemonSession extends ChangeNotifier {
   /// Whether the subscribe connection is up.
   bool connected = false;
 
+  /// Why the last subscribe attempt ended, for the daemon-down banner: the
+  /// connect failure behind a [DaemonUnreachable] (a SocketException whose
+  /// `osError.errorCode` is the errno, a Windows PipeError, a
+  /// TimeoutException), any other stream error as is, or a note when the
+  /// daemon closed the stream. Null before the first attempt ends, and again
+  /// once connected.
+  Object? unreachableCause;
+
   /// The latest session snapshot (state event or status poll).
   List<CoreEntry> entries = const [];
   PersistedEntry? active;
@@ -209,6 +217,7 @@ class DaemonSession extends ChangeNotifier {
       (event) {
         if (!connected) {
           connected = true;
+          unreachableCause = null;
           // The daemon is confirmed up (this also fires after a reconnect —
           // e.g. an update restart): read its update verdict, non-fatally.
           _refreshUpdateStatus();
@@ -216,20 +225,22 @@ class DaemonSession extends ChangeNotifier {
         _onEvent(event);
         notifyListeners();
       },
-      onError: (Object _) => _scheduleReconnect(),
-      onDone: _scheduleReconnect,
+      onError: _scheduleReconnect,
+      onDone: () => _scheduleReconnect('the daemon closed the event stream'),
       cancelOnError: true,
     );
   }
 
-  void _scheduleReconnect() {
+  void _scheduleReconnect(Object error) {
     if (_disposed) return;
     _events?.cancel();
     _events = null;
-    if (connected) {
-      connected = false;
-      notifyListeners();
-    }
+    // The first failure is news to the daemon-down banner (it explains the
+    // failure from it); the repeats on the 1 s cadence are not.
+    final changed = connected || unreachableCause == null;
+    connected = false;
+    unreachableCause = error is DaemonUnreachable ? error.cause : error;
+    if (changed) notifyListeners();
     _retry?.cancel();
     _retry = Timer(_reconnectDelay, _connectEvents);
   }

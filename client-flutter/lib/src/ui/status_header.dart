@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../app/formats.dart';
 import '../app/session.dart';
 import '../ipc/client.dart';
+import '../platform/daemon_service.dart';
+import '../platform/open_url.dart';
 import '../wire/wire.dart';
 import 'app.dart';
 import 'iron_scope.dart';
@@ -52,6 +54,9 @@ class StatusHeader extends StatefulWidget {
     required this.client,
     required this.session,
     this.onServerTap,
+    this.host,
+    this.probe = probeDaemonService,
+    this.start = startDaemonService,
   });
 
   final DaemonClient client;
@@ -59,6 +64,13 @@ class StatusHeader extends StatefulWidget {
 
   /// Reveal/scroll to the node list — wired from HomePage's server selector.
   final VoidCallback? onServerTap;
+
+  /// The daemon-down banner's host (its Start label), service probe and
+  /// elevated Start; injected in tests (the real ones run systemctl /
+  /// launchctl / sc.exe).
+  final HostOs? host;
+  final Future<ServiceReport> Function({Object? cause}) probe;
+  final Future<StartResult> Function() start;
 
   @override
   State<StatusHeader> createState() => _StatusHeaderState();
@@ -110,7 +122,13 @@ class _StatusHeaderState extends State<StatusHeader> {
               const UpdatingBanner()
             else ...[
               if (!s.connected)
-                _DaemonDownBanner(endpoint: widget.client.endpoint),
+                _DaemonDownBanner(
+                  session: s,
+                  client: widget.client,
+                  host: widget.host ?? HostOs.current,
+                  probe: widget.probe,
+                  start: widget.start,
+                ),
               if (showUpdate) UpdateBanner(session: s, status: offered),
             ],
             // 1) The power orb + status word.
@@ -616,30 +634,118 @@ class _ServerPill extends StatelessWidget {
 }
 
 /// The daemon-unreachable banner — a danger-tinted card shown above the hero
-/// while the subscribe connection is down.
-class _DaemonDownBanner extends StatelessWidget {
-  const _DaemonDownBanner({required this.endpoint});
+/// while the subscribe connection is down. Under the headline it says what
+/// the OS service manager knows about the daemon service and, when the fix
+/// is to start it, offers one elevated Start. The probe runs once, as soon
+/// as the session has recorded why its first subscribe attempt ended (that
+/// lands a moment after the banner mounts; the Linux running-but-unreachable
+/// texts turn on the errno in it), and again after a Start — never on the
+/// 1 s reconnect cadence; the reconnect loop hides the banner as soon as the
+/// daemon answers.
+class _DaemonDownBanner extends StatefulWidget {
+  const _DaemonDownBanner({
+    required this.session,
+    required this.client,
+    required this.host,
+    required this.probe,
+    required this.start,
+  });
 
-  final String endpoint;
+  final DaemonSession session;
+  final DaemonClient client;
+  final HostOs host;
+  final Future<ServiceReport> Function({Object? cause}) probe;
+  final Future<StartResult> Function() start;
+
+  @override
+  State<_DaemonDownBanner> createState() => _DaemonDownBannerState();
+}
+
+class _DaemonDownBannerState extends State<_DaemonDownBanner> {
+  ServiceReport? _report;
+  bool _busy = false;
+  bool _probed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _probeOnce();
+  }
+
+  @override
+  void didUpdateWidget(_DaemonDownBanner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _probeOnce();
+  }
+
+  /// Waits for the session to record why the connect failed (the probe tells
+  /// a stopped service from a running-but-unreachable one by it), then
+  /// probes exactly once.
+  void _probeOnce() {
+    if (_probed || widget.session.unreachableCause == null) return;
+    _probed = true;
+    _probe();
+  }
+
+  Future<void> _probe() async {
+    final report = await widget.probe(cause: widget.session.unreachableCause);
+    if (mounted) setState(() => _report = report);
+  }
+
+  /// The banner goes away the moment the daemon answers, so a late outcome
+  /// may land on an unmounted element; by then it is moot.
+  Future<void> _start() async {
+    setState(() => _busy = true);
+    final (outcome, message) = await widget.start();
+    switch (outcome) {
+      case StartOutcome.launched:
+        // Give the service a moment to bind before re-reading its state.
+        await Future<void>.delayed(const Duration(seconds: 2));
+        await _probe();
+      case StartOutcome.cancelled:
+        break;
+      case StartOutcome.failed:
+        if (mounted) showSnack(context, message, error: true);
+    }
+    if (mounted) setState(() => _busy = false);
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = context.iron;
+    final body = Theme.of(context).textTheme.bodyMedium?.copyWith(color: t.text);
+    final report = _report;
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: IronCard(
         tinted: t.danger,
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(Icons.warning_amber, color: t.danger),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                'Daemon unreachable at $endpoint — is iron-link-daemon '
-                'running? (TUN mode needs it started with sudo.)',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(color: t.text),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Daemon unreachable at ${widget.client.endpoint}.',
+                      style: body?.copyWith(fontWeight: FontWeight.w600)),
+                  if (report != null) ...[
+                    const SizedBox(height: 4),
+                    Text(report.detail, style: body),
+                    if (report.canStart) ...[
+                      const SizedBox(height: 10),
+                      IronButton(
+                        label: widget.host == HostOs.macos
+                            ? 'Start daemon'
+                            : 'Start service',
+                        icon: Icons.play_arrow,
+                        accent: true,
+                        onPressed: _busy ? null : _start,
+                      ),
+                    ],
+                  ],
+                ],
               ),
             ),
           ],

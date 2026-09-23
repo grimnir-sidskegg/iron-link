@@ -27,10 +27,15 @@ sealed class ClientException implements Exception {
 }
 
 final class DaemonUnreachable extends ClientException {
-  const DaemonUnreachable(this.endpoint, Object cause)
+  const DaemonUnreachable(this.endpoint, this.cause)
       : super('cannot reach the daemon at $endpoint: $cause');
 
   final String endpoint;
+
+  /// The raw connect failure: a SocketException (its `osError.errorCode` is
+  /// the errno), a Windows PipeError, or a TimeoutException. The daemon-down
+  /// banner tells a stopped service from a running-but-unreachable one by it.
+  final Object cause;
 }
 
 final class DaemonError extends ClientException {
@@ -49,15 +54,21 @@ const int latencyProbeFanout = 8;
 
 /// The typed daemon client. Stateless between calls — safe to share.
 class DaemonClient {
-  DaemonClient({String? endpoint})
-      : endpoint = endpoint ?? Endpoint().socketPath();
+  DaemonClient({String? endpoint}) : _fixed = endpoint;
 
-  /// The unix-socket path (or pipe name) this client dials.
-  final String endpoint;
+  final String? _fixed;
+
+  /// The unix-socket path (or pipe name) this client dials. Re-resolved on
+  /// every read unless one was given: on Linux the socket moves with how the
+  /// daemon was started (the systemd service pins /run/iron-link/…, a manual
+  /// sudo start binds in the user's runtime dir), so a client that came up
+  /// while the service was down must see the socket wherever it appears.
+  String get endpoint => _fixed ?? Endpoint().socketPath();
 
   static const _connectTimeout = Duration(seconds: 5);
 
   Future<IpcConnection> _connect() async {
+    final endpoint = this.endpoint;
     try {
       if (Platform.isWindows) {
         // dart:io has no named-pipe client; pipe_windows.dart fills the
