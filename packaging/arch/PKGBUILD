@@ -22,7 +22,7 @@ license=('GPL-3.0-or-later')
 depends=('gtk3')
 makedepends=('go' 'git' 'cmake' 'ninja' 'clang' 'pkgconf')
 provides=('iron-link')
-conflicts=('iron-link')
+conflicts=('iron-link' 'iron-link-bin')
 # Daemon is built -s -w and the Flutter bundle ships its own optimized libs;
 # don't let makepkg re-strip the bundle or emit a debug package.
 options=('!strip' '!debug')

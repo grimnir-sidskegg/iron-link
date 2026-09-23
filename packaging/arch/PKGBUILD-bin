@@ -22,7 +22,7 @@ url="https://github.com/grimnir-sidskegg/iron-link"
 license=('GPL-3.0-or-later')
 depends=('gtk3')
 provides=('iron-link')
-conflicts=('iron-link')
+conflicts=('iron-link' 'iron-link-git')
 # Prebuilt release binaries: don't re-strip, no debug package.
 options=('!strip' '!debug')
 source=("$url/releases/download/v$pkgver/$_pkgname-$pkgver-linux-amd64.tar.gz")
