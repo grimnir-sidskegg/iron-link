@@ -734,7 +734,7 @@ func TestSubscriptionReconnectSkippedWhenSessionChanged(t *testing.T) {
 		t.Fatalf("stop: %+v", resp)
 	}
 	m.reconnectSession(sessionReconnect{
-		sess: sess, selection: name, name: name,
+		sess: sess, selection: name, name: name, cause: "subscription refresh",
 		req: api.Request{Command: api.CmdActivate, Profile: &profile, Node: &name, Tun: &tun},
 	})
 	if m.activations != 1 {
@@ -767,7 +767,7 @@ func TestSubscriptionReconnectSkippedWhenSelectionChanged(t *testing.T) {
 		t.Fatalf("switch_node: %+v", resp)
 	}
 	m.reconnectSession(sessionReconnect{
-		sess: sess, selection: name, name: name,
+		sess: sess, selection: name, name: name, cause: "subscription refresh",
 		req: api.Request{Command: api.CmdActivate, Profile: &profile, Node: &name, Tun: &tun},
 	})
 	if m.activations != 1 {
@@ -778,6 +778,54 @@ func TestSubscriptionReconnectSkippedWhenSelectionChanged(t *testing.T) {
 	m.mu.Unlock()
 	if node == nil || *node != "sub-b" {
 		t.Errorf("the live switch must win: active node = %v, want sub-b", node)
+	}
+}
+
+// TestCorePinReconnectsRunningSession: a pin that moves a node of the running
+// session to another core re-activates that session, so traffic follows the
+// pin at once; pinning the core the node already runs on changes nothing.
+func TestCorePinReconnectsRunningSession(t *testing.T) {
+	// A dual-core node (sing-box and xray both dial vless+grpc+tls); no uTLS
+	// fingerprint, so the native side builds untagged too.
+	const dual = "vless://88f2c0dc-a8e3-49f4-89b9-b3b54f1cad3a@203.0.113.5:443?security=tls&sni=example.com&type=grpc&serviceName=svc#dual"
+	m := subLoopManager(t)
+	events := subscribeEvents(t, m)
+	if got := m.Handle(api.Request{Command: api.CmdAddNode, URL: strPtr(dual)}); got.Status != api.StatusOk {
+		t.Fatalf("add_node: %+v", got)
+	}
+	if resp := m.Handle(api.Request{Command: api.CmdActivate, Node: strPtr("dual")}); resp.Status != api.StatusActivated {
+		t.Fatalf("activate: %+v", resp)
+	}
+	defer m.Handle(api.Request{Command: api.CmdStop})
+	onXray := func() bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return len(m.plan.XrayNodes) == 1 && len(m.plan.Natives) == 0
+	}
+	if onXray() {
+		t.Fatal("an unpinned dual-core node must start on sing-box")
+	}
+
+	xray := api.CoreXray
+	if got := m.Handle(api.Request{Command: api.CmdSetNodePrefs, Node: strPtr("dual"), CoreOverride: &xray}); got.Status != api.StatusOk {
+		t.Fatalf("set_node_prefs: %+v", got)
+	}
+	if m.activations != 2 {
+		t.Errorf("a pin that moves the node must re-activate, activations = %d", m.activations)
+	}
+	if !onXray() {
+		t.Error("the running session must carry the node on xray after the pin")
+	}
+	logs := collectEvents(events, api.EventLog, 300*time.Millisecond)
+	if got := logLines(logs, "info", `core pin changed the active selection "dual"; session reconnected`); len(got) != 1 {
+		t.Errorf("want one reconnect info line, got %+v", logLines(logs, "info", "core pin"))
+	}
+
+	if got := m.Handle(api.Request{Command: api.CmdSetNodePrefs, Node: strPtr("dual"), CoreOverride: &xray}); got.Status != api.StatusOk {
+		t.Fatalf("set_node_prefs (same core): %+v", got)
+	}
+	if m.activations != 2 {
+		t.Errorf("a pin to the core already in use must not re-activate, activations = %d", m.activations)
 	}
 }
 

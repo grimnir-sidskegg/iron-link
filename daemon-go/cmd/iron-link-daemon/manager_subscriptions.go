@@ -224,7 +224,7 @@ func (m *manager) landSubscriptionFetch(profileName string, fr subscription.Fetc
 	if saveErr == nil {
 		m.publishRefreshLocked([]subscription.Result{res})
 		if res.Err == "" {
-			reconnect = m.sessionReconnectLocked(profileName, p)
+			reconnect = m.sessionReconnectLocked(profileName, p, "subscription refresh")
 		}
 	}
 	m.mu.Unlock()
@@ -250,9 +250,11 @@ type sessionReconnect struct {
 	sess      *engine.Session
 	selection string
 	name      string // the active selection, for the log lines
+	cause     string // what changed the profile ("subscription refresh"), for the log lines
 }
 
-// sessionReconnectLocked decides whether the refresh just applied to p
+// sessionReconnectLocked decides whether the change just applied to p (a
+// subscription refresh, a core pin — cause names it in the log lines)
 // changed what a running session on that profile embeds. Nothing running,
 // or a session on another profile: nil. The plan is rebuilt around the node
 // the running session was compiled around (m.plan.ActiveTag — so the group
@@ -263,7 +265,7 @@ type sessionReconnect struct {
 // tag for that name (a provider rename keeps the stable id): missing, or
 // the plan no longer buildable, keeps the running session as it is with a
 // "warn". Callers hold mu.
-func (m *manager) sessionReconnectLocked(profileName string, p *store.Profile) *sessionReconnect {
+func (m *manager) sessionReconnectLocked(profileName string, p *store.Profile, cause string) *sessionReconnect {
 	if m.sess == nil || m.active == nil || m.active.Profile == nil || m.active.Node == nil || *m.active.Profile != profileName {
 		return nil
 	}
@@ -275,7 +277,7 @@ func (m *manager) sessionReconnectLocked(profileName string, p *store.Profile) *
 		}
 	}
 	if current == nil {
-		m.logSink("warn", fmt.Sprintf("subscription refresh removed the active node %q; the running session is kept as it is", selection))
+		m.logSink("warn", fmt.Sprintf("%s removed the active node %q; the running session is kept as it is", cause, selection))
 		return nil
 	}
 	base := p.FindNodeByID(m.plan.ActiveTag)
@@ -284,7 +286,7 @@ func (m *manager) sessionReconnectLocked(profileName string, p *store.Profile) *
 	}
 	fresh, err := buildPlan(p, base)
 	if err != nil {
-		m.logSink("warn", fmt.Sprintf("subscription refresh: %v; the running session is kept as it is", err))
+		m.logSink("warn", fmt.Sprintf("%s: %v; the running session is kept as it is", cause, err))
 		return nil
 	}
 	if planMembersEqual(m.plan, fresh) {
@@ -297,6 +299,7 @@ func (m *manager) sessionReconnectLocked(profileName string, p *store.Profile) *
 		sess:      m.sess,
 		selection: selection,
 		name:      name,
+		cause:     cause,
 		req: api.Request{
 			Command: api.CmdActivate,
 			Profile: &profile,
@@ -318,22 +321,22 @@ func (m *manager) sessionReconnectLocked(profileName string, p *store.Profile) *
 func (m *manager) reconnectSession(rc sessionReconnect) {
 	prep, err := m.prepareActivation(rc.req)
 	if err != nil {
-		m.logSink("error", fmt.Sprintf("subscription refresh changed the active selection %q, but the reconnect failed: %v", rc.name, err))
+		m.logSink("error", fmt.Sprintf("%s changed the active selection %q, but the reconnect failed: %v", rc.cause, rc.name, err))
 		return
 	}
 	m.mu.Lock()
 	if m.sess != rc.sess || m.active == nil || m.active.Node == nil || *m.active.Node != rc.selection {
 		m.mu.Unlock()
-		m.logSink("info", fmt.Sprintf("subscription refresh changed the active selection %q, but the session or selection changed meanwhile; reconnect skipped", rc.name))
+		m.logSink("info", fmt.Sprintf("%s changed the active selection %q, but the session or selection changed meanwhile; reconnect skipped", rc.cause, rc.name))
 		return
 	}
 	resp := m.startActivationLocked(prep)
 	m.mu.Unlock()
 	if resp.Status != api.StatusActivated {
-		m.logSink("error", fmt.Sprintf("subscription refresh changed the active selection %q, but the reconnect failed: %s", rc.name, resp.Message))
+		m.logSink("error", fmt.Sprintf("%s changed the active selection %q, but the reconnect failed: %s", rc.cause, rc.name, resp.Message))
 		return
 	}
-	m.logSink("info", fmt.Sprintf("subscription refresh changed the active selection %q; session reconnected", rc.name))
+	m.logSink("info", fmt.Sprintf("%s changed the active selection %q; session reconnected", rc.cause, rc.name))
 }
 
 // relabelPlanLocked carries the display names of a refresh that changed no

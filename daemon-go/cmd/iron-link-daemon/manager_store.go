@@ -247,11 +247,17 @@ func (m *manager) removeNode(req api.Request) api.Response {
 	})
 }
 
+// setNodePrefs stores a node's core pin. The running session embeds every
+// node of its profile on the core chosen at activation, so a pin that moves a
+// node to another core re-activates that session with the same context —
+// otherwise the pin would reach the latency probe and diagnose (built per
+// call) but not the traffic until the next manual activation.
 func (m *manager) setNodePrefs(req api.Request) api.Response {
 	if req.Node == nil || *req.Node == "" {
 		return errResp("set_node_prefs requires a node")
 	}
-	return m.withProfile(req, func(name string, p *store.Profile) (api.Response, error) {
+	var reconnect *sessionReconnect
+	resp := m.withProfile(req, func(name string, p *store.Profile) (api.Response, error) {
 		n, err := resolveNode(p, *req.Node)
 		if err != nil {
 			return api.Response{}, err
@@ -265,8 +271,13 @@ func (m *manager) setNodePrefs(req api.Request) api.Response {
 		if req.CoreOverride != nil {
 			msg = "core override: " + string(*req.CoreOverride)
 		}
+		reconnect = m.sessionReconnectLocked(name, p, "core pin")
 		return api.Response{Status: api.StatusOk, Node: n.DisplayName(), Message: msg}, nil
 	})
+	if resp.Status == api.StatusOk && reconnect != nil {
+		m.reconnectSession(*reconnect)
+	}
+	return resp
 }
 
 // groupUpsert is the wire shape of an upsert_group payload: a user group's id
