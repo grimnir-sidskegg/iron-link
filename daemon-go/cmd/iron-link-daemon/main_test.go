@@ -52,8 +52,7 @@ const fixtureProfile = `{
         "server_name": "node-b",
         "uuid": "99f2c0dc-a8e3-49f4-89b9-b3b54f1cad3a",
         "address": "203.0.113.2", "port": 443, "encryption": "none",
-        "security": {"kind": "reality", "reality": {"sni": "google.com", "fp": "chrome",
-          "pbk": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY", "sid": "01ab"}},
+        "security": {"kind": "tls", "tls": {"sni": "example.com"}},
         "transport": {"kind": "tcp"}
       }},
       "preferences": {"core_override": null}
@@ -131,7 +130,7 @@ func TestRunLogsStartAndStop(t *testing.T) {
 // TestBuildPlanEmbedsAllXrayNodes pins the M1 invariant: EVERY xray-eligible
 // node embeds as a member (not just the active one), the active xray node is
 // XrayNodes[0] (xray's default outbound), and native nodes stay native. The
-// fixture is node-a (xhttp/xray), node-b (tcp/native), node-c (xhttp/xray).
+// fixture is node-a (xhttp/xray), node-b (tcp+tls/native), node-c (xhttp/xray).
 func TestBuildPlanEmbedsAllXrayNodes(t *testing.T) {
 	m := fixtureManager(t)
 	prof, err := m.store.LoadProfile("main")

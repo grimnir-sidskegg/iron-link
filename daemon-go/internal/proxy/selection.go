@@ -2,9 +2,9 @@
 //
 // A node is dialed by a core chosen from those whose capabilities cover its
 // (protocol, transport, security, flow). Hard constraints win (a transport
-// only one core speaks forces that core, e.g. xhttp → xray), otherwise the
-// active TUN engine is the default, and a user override always wins within
-// the eligible set.
+// only one core speaks forces that core, e.g. xhttp → xray), then a node's
+// preferred core (REALITY → xray), otherwise the active TUN engine is the
+// default, and a user override always wins within the eligible set.
 
 package proxy
 
@@ -45,15 +45,16 @@ func EligibleCores(p Profile) []api.CoreType {
 //  2. if override is set: return it if eligible, else error.
 //  3. if exactly one core is eligible → return it (the forced case, e.g.
 //     xhttp → xray).
-//  4. if tunEngine is eligible → return it (default to the TUN core, which
+//  4. if the node prefers an eligible core → return it (preferredCore).
+//  5. if tunEngine is eligible → return it (default to the TUN core, which
 //     yields a unified plan + free selector/urltest).
-//  5. otherwise → deterministic fallback: the first eligible core in
+//  6. otherwise → deterministic fallback: the first eligible core in
 //     corePriority order.
 func SelectCore(p Profile, tunEngine api.CoreType, override *api.CoreType) (api.CoreType, error) {
 	if p == nil {
 		return "", fmt.Errorf("a group node has no proxy profile to select a core for")
 	}
-	core, err := selectFromEligible(EligibleCores(p), tunEngine, override)
+	core, err := selectFromEligible(EligibleCores(p), tunEngine, preferredCore(p), override)
 	if err != nil {
 		return "", fmt.Errorf("%w (%s)", err, p.DisplayName())
 	}
@@ -64,7 +65,7 @@ func SelectCore(p Profile, tunEngine api.CoreType, override *api.CoreType) (api.
 // set (in corePriority order). Separated from SelectCore so every branch —
 // including the empty-eligible error — is unit-testable without constructing
 // an (otherwise impossible) undialable node.
-func selectFromEligible(eligible []api.CoreType, tunEngine api.CoreType, override *api.CoreType) (api.CoreType, error) {
+func selectFromEligible(eligible []api.CoreType, tunEngine api.CoreType, preferred, override *api.CoreType) (api.CoreType, error) {
 	// 1. Nothing can dial this node.
 	if len(eligible) == 0 {
 		return "", fmt.Errorf("no installed core can dial this node")
@@ -83,13 +84,33 @@ func selectFromEligible(eligible []api.CoreType, tunEngine api.CoreType, overrid
 		return eligible[0], nil
 	}
 
-	// 4. Default to the active TUN engine when it is eligible.
+	// 4. The node's preferred core, when it is eligible.
+	if preferred != nil && slices.Contains(eligible, *preferred) {
+		return *preferred, nil
+	}
+
+	// 5. Default to the active TUN engine when it is eligible.
 	if slices.Contains(eligible, tunEngine) {
 		return tunEngine, nil
 	}
 
-	// 5. Deterministic fallback: first eligible core by priority. eligible is
+	// 6. Deterministic fallback: first eligible core by priority. eligible is
 	//    already in corePriority order and non-empty. (Unreachable with only
 	//    two core variants — documented safety net for a third core.)
 	return eligible[0], nil
+}
+
+// preferredCore is the core a node defaults to when several can dial it but
+// only one does so reliably, or nil when any eligible core will do. A REALITY
+// node prefers xray: sing-box's REALITY client announces version 1.8.1 in its
+// ClientHello, and xray servers since 26.7.28 refuse clients older than
+// 26.3.27 by default (minClientVer) and hand them to the camouflage target,
+// so the sing-box outbound never gets through. A pin still forces sing-box.
+func preferredCore(p Profile) *api.CoreType {
+	s, ok := p.(interface{ streamSecurity() Security })
+	if !ok || s.streamSecurity().Kind != SecurityReality {
+		return nil
+	}
+	core := api.CoreXray
+	return &core
 }

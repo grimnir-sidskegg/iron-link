@@ -26,10 +26,34 @@ func TestXhttpNodeIsForcedToXrayEvenWithSingboxTunEngine(t *testing.T) {
 	}
 }
 
-func TestGrpcRealityNodeDefaultsToTunEngine(t *testing.T) {
+func TestGrpcRealityNodeDefaultsToXray(t *testing.T) {
 	n := vlessNode(grpc(), reality(), "")
-	// Both cores eligible; default to the TUN engine.
+	// Both cores eligible, but REALITY prefers xray over the TUN engine
+	// (sing-box's REALITY client is below the servers' minClientVer).
 	core, err := SelectCore(n, api.CoreSingBox, nil)
+	if err != nil {
+		t.Fatalf("SelectCore: %v", err)
+	}
+	if core != api.CoreXray {
+		t.Errorf("core = %s, want Xray", core)
+	}
+}
+
+func TestGrpcTLSNodeDefaultsToTunEngine(t *testing.T) {
+	n := vlessNode(grpc(), Security{Kind: SecurityTLS, TLS: &TLSParams{SNI: "example.com"}}, "")
+	// Both cores eligible, no preference; default to the TUN engine.
+	core, err := SelectCore(n, api.CoreSingBox, nil)
+	if err != nil {
+		t.Fatalf("SelectCore: %v", err)
+	}
+	if core != api.CoreSingBox {
+		t.Errorf("core = %s, want SingBox", core)
+	}
+}
+
+func TestRealityNodePinToSingBoxWins(t *testing.T) {
+	n := vlessNode(grpc(), reality(), "")
+	core, err := SelectCore(n, api.CoreSingBox, corePtr(api.CoreSingBox))
 	if err != nil {
 		t.Fatalf("SelectCore: %v", err)
 	}
@@ -70,21 +94,21 @@ func TestEmptyEligibleSetIsAnError(t *testing.T) {
 	// No installed core can dial the node → error. Tested via the pure rule
 	// fn with an empty eligible set, because the current model can't express
 	// an undialable node.
-	_, err := selectFromEligible(nil, api.CoreSingBox, nil)
+	_, err := selectFromEligible(nil, api.CoreSingBox, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "no installed core") {
 		t.Errorf("err = %v, want 'no installed core'", err)
 	}
 }
 
-func TestRule4DefaultsToXrayWhenItIsTheTunEngine(t *testing.T) {
-	// Both cores eligible, no override, tun_engine = xray → rule 4 returns
-	// xray (the active TUN engine), distinguishing rule 4 from the rule-5
+func TestRule5DefaultsToXrayWhenItIsTheTunEngine(t *testing.T) {
+	// Both cores eligible, no override, tun_engine = xray → rule 5 returns
+	// xray (the active TUN engine), distinguishing rule 5 from the rule-6
 	// fallback which would return sing-box (first by priority).
 	eligible := EligibleCores(vlessNode(grpc(), reality(), ""))
 	if !slices.Equal(eligible, []api.CoreType{api.CoreSingBox, api.CoreXray}) {
 		t.Fatalf("EligibleCores = %v, want [SingBox, Xray]", eligible)
 	}
-	core, err := selectFromEligible(eligible, api.CoreXray, nil)
+	core, err := selectFromEligible(eligible, api.CoreXray, nil, nil)
 	if err != nil {
 		t.Fatalf("selectFromEligible: %v", err)
 	}

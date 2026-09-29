@@ -77,9 +77,9 @@ func TestRealNodeViaSocks(t *testing.T) {
 // TestRealNodeUniversalLatency proves the UNIVERSAL latency probe against a real
 // node of ANY protocol — set IRON_LINK_TEST_NODE_URL to an anytls/hysteria2/tuic/
 // hysteria/ss/vmess/trojan/vless share link. It routes the node to the same core
-// the live session would (sing-box by default, xray when forced or when only it
-// can dial) and times a real round trip; IRON_LINK_TEST_CORE=Xray|SingBox forces
-// the core, as a UI pin does. This is the end-to-end proof of ProbeLatencySingBox
+// the live session would (sing-box by default; xray for REALITY, when forced or
+// when only it can dial) and times a real round trip;
+// IRON_LINK_TEST_CORE=Xray|SingBox forces the core, as a UI pin does. This is the end-to-end proof of ProbeLatencySingBox
 // that the unit gate cannot give (no real node). No live TUN here, so the probe
 // is unmarked.
 //
@@ -94,7 +94,7 @@ func TestRealNodeUniversalLatency(t *testing.T) {
 		t.Fatalf("parse IRON_LINK_TEST_NODE_URL: %v", err)
 	}
 	// IRON_LINK_TEST_CORE=Xray|SingBox forces the core (what a UI pin does);
-	// unset = selection's default, sing-box for every dual-core node.
+	// unset = selection's default: xray for REALITY, sing-box for other dual-core nodes.
 	var override *api.CoreType
 	if c := os.Getenv("IRON_LINK_TEST_CORE"); c != "" {
 		ct := api.CoreType(c)

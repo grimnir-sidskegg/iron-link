@@ -185,7 +185,7 @@ func TestGroupVerbsDoNotPanic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildPlan(node-x): %v", err)
 	}
-	if len(plan.Natives) != 1 || len(plan.XrayNodes) != 0 || plan.Group != nil {
+	if len(plan.Natives)+len(plan.XrayNodes) != 1 || plan.Group != nil {
 		t.Errorf("plan must embed only the dialable node, not the group: %+v", plan)
 	}
 }

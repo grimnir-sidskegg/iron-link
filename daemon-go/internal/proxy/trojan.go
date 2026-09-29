@@ -56,6 +56,9 @@ func (c *TrojanConfig) TransportLabel() string { return c.Transport.Label() }
 func (c *TrojanConfig) SecurityLabel() string  { return c.Security.Label() }
 func (c *TrojanConfig) ServerNetwork() string  { return "tcp" }
 
+// streamSecurity exposes the security union to core selection (preferredCore).
+func (c *TrojanConfig) streamSecurity() Security { return c.Security }
+
 // CamouflageSNI: Trojan is always TLS (tls or reality), so a probeable front is
 // present whenever the node bears one of those securities.
 func (c *TrojanConfig) CamouflageSNI() (string, bool) {

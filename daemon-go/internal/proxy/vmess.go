@@ -58,6 +58,9 @@ func (c *VmessConfig) TransportLabel() string { return c.Transport.Label() }
 func (c *VmessConfig) SecurityLabel() string  { return c.Security.Label() }
 func (c *VmessConfig) ServerNetwork() string  { return "tcp" }
 
+// streamSecurity exposes the security union to core selection (preferredCore).
+func (c *VmessConfig) streamSecurity() Security { return c.Security }
+
 // CamouflageSNI: a TLS/Reality node hides behind a front worth probing.
 func (c *VmessConfig) CamouflageSNI() (string, bool) {
 	switch c.Security.Kind {
