@@ -228,6 +228,13 @@ func parseVlessURL(u *url.URL) (*VlessConfig, error) {
 		c.Transport = Transport{Kind: TransportGrpc, Grpc: &GrpcParams{
 			ServiceName: q.Get("serviceName"),
 		}}
+	case "", "tcp", "raw":
+		// The default TCP transport ("raw" is xray's newer name for it).
+	default:
+		// An unsupported transport (httpupgrade, kcp, …) must not become a
+		// TCP node that looks valid and never connects; the subscription
+		// loop skips the line on this error.
+		return nil, fmt.Errorf("unsupported VLESS transport type %q", q.Get("type"))
 	}
 
 	return c, nil

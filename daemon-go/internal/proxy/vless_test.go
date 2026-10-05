@@ -103,3 +103,23 @@ func TestParseVlessWsTransport(t *testing.T) {
 		t.Errorf("ws params wrong: %+v", c.Transport)
 	}
 }
+
+func TestParseVlessTCPTransportAliases(t *testing.T) {
+	for _, typ := range []string{"", "tcp", "raw"} {
+		p, err := ParseURL("vless://u@h:443?type=" + typ + "#T")
+		if err != nil {
+			t.Fatalf("type=%q: ParseURL: %v", typ, err)
+		}
+		if k := p.(*VlessConfig).Transport.Kind; k != TransportTCP {
+			t.Errorf("type=%q: transport = %q, want tcp", typ, k)
+		}
+	}
+}
+
+func TestParseVlessUnknownTransportIsError(t *testing.T) {
+	for _, typ := range []string{"httpupgrade", "kcp", "h2"} {
+		if _, err := ParseURL("vless://u@h:443?type=" + typ + "#T"); err == nil {
+			t.Errorf("type=%q: expected an error, got a node", typ)
+		}
+	}
+}
