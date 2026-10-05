@@ -110,12 +110,14 @@ def main():
     copy_in(bundle, os.path.join(ROOT, "LICENSE"))
     copy_in(bundle, os.path.join(ROOT, "THIRD_PARTY_LICENSES"))
 
-    # Bundle docs + installer for this OS.
+    # Bundle docs + the installer for this OS only (bundle/<os>/).
     copy_in(bundle, os.path.join(HERE, "bundle", "INSTALL.md"))
     if is_windows:
-        copy_in(bundle, os.path.join(HERE, "bundle", "install.ps1"))
+        copy_in(bundle, os.path.join(HERE, "bundle", "windows", "install.ps1"))
     else:
-        os.chmod(copy_in(bundle, os.path.join(HERE, "bundle", "install.sh")), 0o755)
+        os_dir = "macos" if args.target.startswith("darwin") else "linux"
+        installer = os.path.join(HERE, "bundle", os_dir, "install.sh")
+        os.chmod(copy_in(bundle, installer), 0o755)
 
     # Archive.
     out = os.path.join(args.staging, f"{bundle_name}.{args.archive}")

@@ -1,43 +1,14 @@
 #!/bin/sh
-# iron-link installer (Linux / macOS). The daemon embeds its cores — there is
-# no cores/ dir. `./install.sh --uninstall` reverses it.
+# iron-link installer (macOS). The daemon embeds its cores — there is no
+# cores/ dir. `./install.sh --uninstall` reverses it.
 #
-# Linux: copies the daemon onto PATH and grants it cap_net_admin. Service
-# registration is not wired up here — the Linux bundle's gui/ runs in place,
-# or use the binary Arch recipe (packaging/arch/PKGBUILD-bin) for a full
-# install.
-#
-# macOS: installs the daemon to /usr/local/bin, the app to /Applications, and
+# Installs the daemon to /usr/local/bin, the app to /Applications, and
 # registers the daemon as a launchd LaunchDaemon (root, auto-start; the control
 # socket is handed to the installing user). Bundles are not notarized, so the
 # quarantine flag a browser download carries is removed first — see INSTALL.md.
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-OS=$(uname -s)
-MODE=install
-[ "${1:-}" = "--uninstall" ] && MODE=uninstall
-
-linux_install() {
-    BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
-    mkdir -p "$BIN_DIR"
-    echo "→ daemon → $BIN_DIR"
-    install -m 0755 "$HERE/iron-link-daemon" "$BIN_DIR/iron-link-daemon"
-    if command -v setcap >/dev/null 2>&1; then
-        echo "→ granting cap_net_admin to the daemon (sudo)…"
-        sudo setcap cap_net_admin,cap_net_raw=+ep "$BIN_DIR/iron-link-daemon" \
-            || echo "  setcap failed — TUN sessions will need sudo"
-    fi
-    echo
-    echo "done. Start the daemon:  sudo $BIN_DIR/iron-link-daemon   (sudo for TUN)"
-    echo "(make sure $BIN_DIR is on your PATH)"
-}
-
-linux_uninstall() {
-    BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
-    rm -f "$BIN_DIR/iron-link-daemon"
-    echo "removed $BIN_DIR/iron-link-daemon. Config kept: ${XDG_CONFIG_HOME:-$HOME/.config}/iron-link"
-}
 
 # macOS paths. The daemon runs as root (a TUN needs it) and serves ONE user:
 # whoever runs this script (or invoked sudo for it). Its control socket lands
@@ -74,7 +45,7 @@ darwin_install() {
     fi
 
     PLIST_SRC="$HERE/launchd/$LABEL.plist"
-    [ -f "$PLIST_SRC" ] || PLIST_SRC="$HERE/../launchd/$LABEL.plist"
+    [ -f "$PLIST_SRC" ] || PLIST_SRC="$HERE/../../launchd/$LABEL.plist"
     echo "→ launchd $LABEL (root daemon, serves $U)"
     sudo launchctl bootout "system/$LABEL" 2>/dev/null || true
     sed -e "s#__CONFIG_DIR__#$CONFIG_DIR#g" \
@@ -107,11 +78,4 @@ darwin_uninstall() {
     echo "removed the daemon, its launchd unit and $APP_DST. Config kept: $CONFIG_DIR"
 }
 
-case "$OS" in
-    Linux)  [ "$MODE" = install ] && linux_install || linux_uninstall ;;
-    Darwin) [ "$MODE" = install ] && darwin_install || darwin_uninstall ;;
-    *)
-        echo "unsupported OS: $OS" >&2
-        exit 1
-        ;;
-esac
+if [ "${1:-}" = "--uninstall" ]; then darwin_uninstall; else darwin_install; fi
