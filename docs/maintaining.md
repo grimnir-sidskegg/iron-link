@@ -71,5 +71,5 @@ committing the manifest pair to `updates/` on `main` — is in
   line in place and dirties the checkout otherwise.
 - **macOS** — the release tarball carries the daemon, `iron-link.app` and
   the launchd unit template; its `install.sh` installs all three. The bundle
-  is ad-hoc signed and not notarized — `packaging/bundle/INSTALL.md` covers
+  is ad-hoc signed and not notarized — `packaging/bundle/macos/INSTALL.md` covers
   what that means for users.

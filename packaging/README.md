@@ -16,9 +16,10 @@ them).
 - **`assemble.py`** — copies the Go daemon binary (via `--daemon-bin`) and
   `bundle/` files into the staging dir, then writes
   `iron-link-<version>-<target>.{tar.gz,zip}` + a `.sha256`.
-- **`bundle/`** — what ships inside the archives: `INSTALL.md`, plus one
-  installer per OS — `linux/install.sh`, `macos/install.sh`,
-  `windows/install.ps1`. Each archive carries only its own OS's installer.
+- **`bundle/`** — what ships inside the archives, one directory per OS:
+  `linux/`, `macos/`, `windows/`, each with its own `INSTALL.md` and
+  installer (`install.sh` or `install.ps1`). Each archive carries only its
+  own OS's files.
 - **`arch/`** — native Arch Linux package (`PKGBUILD`, `.install`, `.desktop`).
   Builds both halves from GitHub `main` (Go daemon + `flutter build linux`),
   installs the daemon as a **root systemd service** (`systemd/iron-link.service`)
