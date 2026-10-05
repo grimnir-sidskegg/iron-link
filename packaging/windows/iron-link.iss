@@ -68,6 +68,10 @@ WizardStyle=modern
 Source: "{#DaemonExe}"; DestDir: "{app}"; Flags: ignoreversion
 ; The Flutter bundle: exe + flutter_windows.dll + plugin DLLs + data\.
 Source: "{#FlutterDir}\*"; DestDir: "{app}\app"; Flags: ignoreversion recursesubdirs createallsubdirs
+; License texts — the daemon embeds GPL/MPL cores, so the binary distribution
+; carries them. A .txt name so Notepad opens them on double-click.
+Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "..\..\THIRD_PARTY_LICENSES"; DestDir: "{app}"; DestName: "THIRD_PARTY_LICENSES.txt"; Flags: ignoreversion
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"
