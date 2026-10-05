@@ -54,8 +54,10 @@ python3 packaging/assemble.py --target linux-amd64 --version 0.0.0 \
 
 ## Not yet (follow-ups)
 
-A service install from the Linux bundle (its `install.sh` only copies the
-daemon; the systemd unit is wired up by the Arch recipes alone), macOS
-code-signing/notarization, Windows Authenticode signing (the installer is
-unsigned — SmartScreen will warn), more native packages (`.deb`/`.rpm`/`.dmg`),
-and more arches (linux-arm64, darwin-amd64).
+- `.deb` and `.rpm` generated from the Linux tarball contents with nfpm in the
+  CI Linux leg (same layout and post-install as the Arch recipe). Beyond Arch
+  and these two packages, no per-distro support is planned; the bundle's
+  `install.sh` stays a copy-the-daemon helper.
+- macOS code-signing/notarization and Windows Authenticode signing (the
+  installer is unsigned — SmartScreen will warn).
+- More arches (linux-arm64, darwin-amd64).
