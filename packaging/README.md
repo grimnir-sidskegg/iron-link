@@ -2,10 +2,10 @@
 
 Release tooling driven by `.github/workflows/build.yml` (manual dispatch is
 the normal path; the release step fires on `v*` tags). Each run
-builds the Go daemon on Linux/macOS/Windows and produces a self-contained
-per-OS bundle. On Windows it additionally builds the Flutter client and wraps
-it together with the daemon into a single-file Inno Setup installer
-(`iron-link-*-setup.exe`).
+builds the Go daemon and the Flutter client on Linux/macOS/Windows. On Linux
+and macOS both go into the per-OS bundle (`gui/` and `iron-link.app`); on
+Windows the client and the daemon are wrapped into a single-file Inno Setup
+installer (`iron-link-*-setup.exe`), next to a daemon-only bundle.
 
 There is no core fetching: `sing-box` and `xray` are **embedded as libraries**
 inside the Go daemon (`daemon-go/`), pinned in its `go.mod` (never float
@@ -26,14 +26,16 @@ them).
   and the Flutter GUI into the app menu, then wires them over
   `/run/iron-link/iron-link.sock` (socket group `iron-link`; the post-install
   adds the installing user and writes `/etc/iron-link/config.env`). Install/
-  update: `makepkg -si` (in `packaging/arch/`); remove: `pacman -R iron-link`.
-  Needs `flutter` (stable) on PATH; no CI — it compiles locally.
+  update: `makepkg -si` (in `packaging/arch/`); remove:
+  `pacman -R iron-link-git`. Needs `flutter` (stable) on PATH; no CI — it
+  compiles locally. `PKGBUILD-bin` produces the same layout from the release
+  tarball instead (`iron-link-bin`, needs only base-devel).
 - **`windows/iron-link.iss`** — the Inno Setup script (Windows only). Bundles
-  `iron-link-daemon.exe` + the Flutter client into one installer. The daemon is
-  intentionally NOT a service: it must run elevated but as the logged-in user so
-  its `%APPDATA%` matches the client's, so the script sets an AppCompat
-  `RUNASADMIN` layer instead of registering an SCM unit. Compiled by the
-  workflow with `ISCC`; the version + source paths come in as `/D` defines.
+  `iron-link-daemon.exe` + the Flutter client into one installer and registers
+  the daemon as an auto-start Windows service (LocalSystem); `install` bakes
+  the installing user's config dir into the service environment so it shares
+  `%APPDATA%\iron-link` with the client. Compiled by the workflow with `ISCC`;
+  the version + source paths come in as `/D` defines.
 
 ## Targets
 
@@ -52,8 +54,8 @@ python3 packaging/assemble.py --target linux-amd64 --version 0.0.0 \
 
 ## Not yet (follow-ups)
 
-macOS service (launchd) + bundle/installer (Linux now has the Arch package +
-systemd unit above; macOS still starts by hand and builds from source), macOS
+A service install from the Linux bundle (its `install.sh` only copies the
+daemon; the systemd unit is wired up by the Arch recipes alone), macOS
 code-signing/notarization, Windows Authenticode signing (the installer is
 unsigned — SmartScreen will warn), more native packages (`.deb`/`.rpm`/`.dmg`),
 and more arches (linux-arm64, darwin-amd64).

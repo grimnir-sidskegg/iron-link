@@ -156,8 +156,7 @@ jobs:
 
       # The Flutter desktop app only builds on its own OS — this is the
       # only way to get a Windows GUI binary without a Windows dev box.
-      # Uploaded as its own artifact; bundle/installer integration is the
-      # M0 packaging task.
+      # Uploaded as its own artifact and wrapped by the Inno Setup step below.
       # --build-number fills the fourth VERSIONINFO numeric of the exe
       # (passing --build-name alone zeroes it); the workflow run number keeps
       # it monotonic so every CI build stays distinguishable. Version identity
@@ -202,9 +201,9 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # Single-file installer for the Flutter client + the elevated daemon.
+      # Single-file installer for the Flutter client + the daemon service.
       # Runs only on Windows, after both halves are built. The .iss explains
-      # the no-service / RUNASADMIN design.
+      # the service registration and the per-user config dir.
       - name: Build Windows installer (Inno Setup)
         if: runner.os == 'Windows'
         shell: pwsh

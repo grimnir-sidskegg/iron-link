@@ -3,9 +3,10 @@
 <!--
   iron-link daemon — macOS launchd LaunchDaemon (runs at boot, as root).
 
-  DRAFT — install.sh substitutes the __PLACEHOLDERS__ for the installing user
-  and copies this to /Library/LaunchDaemons/org.iron-link.daemon.plist, then
-  `launchctl load -w` it. Align the Label/filename with the app bundle id.
+  Template — the macOS install.sh substitutes the __PLACEHOLDERS__ for the
+  installing user, writes the result to
+  /Library/LaunchDaemons/org.iron-link.daemon.plist and loads it with
+  `launchctl bootstrap system`.
 
   Unlike Linux, NO daemon change is needed: on macOS there is no
   $XDG_RUNTIME_DIR, so a root daemon and the user's client both resolve the
