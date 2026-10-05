@@ -198,6 +198,12 @@ func parseTrojanURL(u *url.URL) (*TrojanConfig, error) {
 		c.Transport = Transport{Kind: TransportGrpc, Grpc: &GrpcParams{
 			ServiceName: q.Get("serviceName"),
 		}}
+	case "", "tcp", "raw":
+		// The default TCP transport ("raw" is xray's newer name for it).
+	default:
+		// Same rule as VLESS: an unsupported transport is an error, not a
+		// TCP node that never connects.
+		return nil, fmt.Errorf("unsupported Trojan transport type %q", q.Get("type"))
 	}
 
 	return c, nil

@@ -201,3 +201,20 @@ func TestTrojanRegistered(t *testing.T) {
 		t.Errorf("EligibleCores = %v, want both cores", eligible)
 	}
 }
+
+func TestParseTrojanTransportTypes(t *testing.T) {
+	for _, typ := range []string{"", "tcp", "raw"} {
+		p, err := ParseURL("trojan://pw@h:443?type=" + typ + "#T")
+		if err != nil {
+			t.Fatalf("type=%q: ParseURL: %v", typ, err)
+		}
+		if k := p.(*TrojanConfig).Transport.Kind; k != TransportTCP {
+			t.Errorf("type=%q: transport = %q, want tcp", typ, k)
+		}
+	}
+	for _, typ := range []string{"httpupgrade", "kcp", "h2"} {
+		if _, err := ParseURL("trojan://pw@h:443?type=" + typ + "#T"); err == nil {
+			t.Errorf("type=%q: expected an error, got a node", typ)
+		}
+	}
+}

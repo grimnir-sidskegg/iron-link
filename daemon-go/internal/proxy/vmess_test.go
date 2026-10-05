@@ -304,3 +304,20 @@ func TestVmessProfileDocRoundTrip(t *testing.T) {
 		t.Errorf("round-trip security mismatch: %+v vs %+v", g.Security, o.Security)
 	}
 }
+
+func TestParseVmessTransportNets(t *testing.T) {
+	for _, net := range []string{"", "tcp", "raw"} {
+		p, err := ParseURL(vmessLinkURL(t, map[string]any{"add": "h", "id": "u", "net": net}))
+		if err != nil {
+			t.Fatalf("net=%q: ParseURL: %v", net, err)
+		}
+		if k := p.(*VmessConfig).Transport.Kind; k != TransportTCP {
+			t.Errorf("net=%q: transport = %q, want tcp", net, k)
+		}
+	}
+	for _, net := range []string{"kcp", "h2", "httpupgrade", "xhttp"} {
+		if _, err := ParseURL(vmessLinkURL(t, map[string]any{"add": "h", "id": "u", "net": net})); err == nil {
+			t.Errorf("net=%q: expected an error, got a node", net)
+		}
+	}
+}

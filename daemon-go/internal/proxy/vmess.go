@@ -239,8 +239,12 @@ func parseVmessURL(u *url.URL) (*VmessConfig, error) {
 		c.Transport = Transport{Kind: TransportGrpc, Grpc: &GrpcParams{
 			ServiceName: link.Path,
 		}}
-	default:
+	case "", "tcp", "raw":
 		c.Transport = Transport{Kind: TransportTCP}
+	default:
+		// Same rule as VLESS: an unsupported transport (kcp, h2, xhttp, …)
+		// is an error, not a TCP node that never connects.
+		return nil, fmt.Errorf("unsupported vmess transport net %q", link.Net)
 	}
 
 	// tls → security. The SNI front falls back to the host header when sni is
