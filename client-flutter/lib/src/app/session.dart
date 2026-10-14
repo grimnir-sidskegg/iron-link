@@ -193,7 +193,8 @@ class DaemonSession extends ChangeNotifier {
   /// Merged event feed for the Logs page.
   final Queue<FeedLine> feed = Queue();
 
-  /// Bumped on `subscription_updated` so list pages know to reload.
+  /// Bumped on `subscription_updated` and on every (re)connect so list pages
+  /// know to reload.
   int storeRev = 0;
 
   /// Client-side hint that the store changed behind the daemon's back —
@@ -218,6 +219,9 @@ class DaemonSession extends ChangeNotifier {
         if (!connected) {
           connected = true;
           unreachableCause = null;
+          // Lists fetched while the daemon was away failed or went stale:
+          // every storeRev listener refetches.
+          storeRev++;
           // The daemon is confirmed up (this also fires after a reconnect —
           // e.g. an update restart): read its update verdict, non-fatally.
           _refreshUpdateStatus();
@@ -240,6 +244,11 @@ class DaemonSession extends ChangeNotifier {
     final changed = connected || unreachableCause == null;
     connected = false;
     unreachableCause = error is DaemonUnreachable ? error.cause : error;
+    // The session lives in the daemon process: with the daemon gone there is
+    // no tunnel, so drop the last status instead of showing it as current.
+    entries = const [];
+    active = null;
+    activeNodeLive = null;
     if (changed) notifyListeners();
     _retry?.cancel();
     _retry = Timer(_reconnectDelay, _connectEvents);

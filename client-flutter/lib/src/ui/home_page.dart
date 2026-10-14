@@ -75,14 +75,16 @@ class _HomePageState extends State<HomePage> {
   final ScrollController _scroll = ScrollController();
   final GlobalKey _listAnchor = GlobalKey();
 
-  late int _seenStoreRev = widget.session.storeRev;
-  late bool _connected = widget.session.connected;
-  late bool _running = widget.session.isRunning;
-  late String? _live = widget.session.activeNodeLive;
+  late int _seenStoreRev;
+  late bool _running;
+  late String? _live;
 
   @override
   void initState() {
     super.initState();
+    _seenStoreRev = widget.session.storeRev;
+    _running = widget.session.isRunning;
+    _live = widget.session.activeNodeLive;
     widget.session.addListener(_onSession);
     _load();
   }
@@ -96,20 +98,14 @@ class _HomePageState extends State<HomePage> {
 
   /// Manual session listener (the _ShellState pattern): traffic ticks
   /// notify every second and must not touch the list — reload/setState
-  /// only when something the list shows actually changed. StatusHeader
-  /// has its own ListenableBuilder, so `connected` flips need no setState
-  /// here, just the reload that fixes a list gone stale while the daemon
-  /// was away.
+  /// only when something the list shows actually changed. A reconnect
+  /// bumps storeRev, which reloads a list gone stale while the daemon was
+  /// away.
   void _onSession() {
     final s = widget.session;
     if (s.storeRev != _seenStoreRev) {
       _seenStoreRev = s.storeRev;
       _load();
-    }
-    if (s.connected != _connected) {
-      final cameUp = s.connected;
-      _connected = s.connected;
-      if (cameUp) _load();
     }
     if (s.isRunning != _running || s.activeNodeLive != _live) {
       setState(() {
