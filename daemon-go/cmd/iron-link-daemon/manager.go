@@ -61,6 +61,11 @@ type manager struct {
 	plan      engine.SessionPlan // the embedded node set (IsMember = live-switchable)
 	startedAt time.Time
 	active    *api.PersistedEntry
+	// routing is the running session's routing as stored (m.plan.Routing is
+	// the compiled copy, unresolvable targets folded onto the selector);
+	// routingWarnings names each such fallback, for status and state.
+	routing         *routing.Config
+	routingWarnings []string
 	// stopTraffic ends the running session's per-second Traffic emitter.
 	stopTraffic chan struct{}
 	// activations counts engine.Start calls — observability for "did that
@@ -271,6 +276,7 @@ type activation struct {
 	routing     *routing.Config // nil = no routing, everything through the selector
 	tun         bool
 	plan        engine.SessionPlan
+	warnings    []string // routing targets that fell back to the selector
 	sbCfg       []byte
 	xrayCfg     []byte
 }
@@ -319,7 +325,7 @@ func (m *manager) prepareActivation(req api.Request) (activation, error) {
 		routingCfg = prof.ActiveRouting()
 	}
 
-	plan, err := buildPlan(prof, node, routingCfg)
+	plan, warnings, err := buildPlan(prof, node, routingCfg)
 	if err != nil {
 		return prep, err
 	}
@@ -360,6 +366,7 @@ func (m *manager) prepareActivation(req api.Request) (activation, error) {
 		routing:     routingCfg,
 		tun:         tun,
 		plan:        plan,
+		warnings:    warnings,
 		sbCfg:       sbCfg,
 		xrayCfg:     xrayCfg,
 	}, nil
@@ -375,11 +382,11 @@ func (m *manager) startActivationLocked(prep activation) api.Response {
 		m.stopTrafficLocked()
 		if err := m.sess.Close(); err != nil {
 			m.sess = nil
-			m.active = nil
+			m.active, m.routing, m.routingWarnings = nil, nil, nil
 			return errResp("stopping the previous session: " + err.Error())
 		}
 		m.sess = nil
-		m.active = nil
+		m.active, m.routing, m.routingWarnings = nil, nil, nil
 	}
 
 	sess, err := engine.StartWithOptions(prep.sbCfg, prep.xrayCfg, engine.StartOptions{LogSink: m.logSink})
@@ -403,6 +410,11 @@ func (m *manager) startActivationLocked(prep activation) api.Response {
 
 	m.sess = sess
 	m.plan = prep.plan
+	m.routing, m.routingWarnings = prep.routing, prep.warnings
+	for _, w := range prep.warnings {
+		fmt.Fprintln(os.Stderr, "iron-link-daemon: warn:", w)
+		m.logSink("warn", w)
+	}
 	m.activations++
 	m.startedAt = time.Now()
 	profileName, nodeName := prep.profileName, prep.nodeName
@@ -510,8 +522,10 @@ func (m *manager) saveLastSessionLocked() {
 // node that no core can dial — or that xray cannot actually build an outbound
 // for — is skipped with a log, not fatal (one broken node must not brick every
 // activation); the ACTIVE node failing either check fails the activation.
-// Groups lower to urltests: the active one, plus every group rc targets.
-func buildPlan(prof *store.Profile, active *store.Node, rc *routing.Config) (engine.SessionPlan, error) {
+// Groups lower to urltests: the active one, plus every group rc targets. A
+// routing target the plan cannot resolve falls back to the selector; the
+// returned warnings name each one.
+func buildPlan(prof *store.Profile, active *store.Node, rc *routing.Config) (engine.SessionPlan, []string, error) {
 	plan := engine.SessionPlan{Routing: rc}
 	// Selector member tags are the stable node UUIDs (DisplayName may collide),
 	// so the active default is addressed by id too.
@@ -528,7 +542,7 @@ func buildPlan(prof *store.Profile, active *store.Node, rc *routing.Config) (eng
 		core, err := proxy.SelectCore(n.Profile(), api.CoreSingBox, n.Preferences.CoreOverride)
 		if err != nil {
 			if isActive {
-				return plan, err
+				return plan, nil, err
 			}
 			continue
 		}
@@ -546,7 +560,7 @@ func buildPlan(prof *store.Profile, active *store.Node, rc *routing.Config) (eng
 				xerr = fmt.Errorf("xray cannot dial %s nodes", n.Profile().Kind())
 			}
 			if isActive {
-				return plan, fmt.Errorf("active node %q: %w", n.DisplayName(), xerr)
+				return plan, nil, fmt.Errorf("active node %q: %w", n.DisplayName(), xerr)
 			}
 			fmt.Fprintf(os.Stderr, "iron-link-daemon: skipping xray node %q: %v\n", n.DisplayName(), xerr)
 			continue
@@ -561,27 +575,29 @@ func buildPlan(prof *store.Profile, active *store.Node, rc *routing.Config) (eng
 	// Lower the active group, then every group the routing targets (a rule
 	// pointing at an unlowered group would resolve to nothing), to a urltest
 	// over its members that actually embedded as dialable selector members (a
-	// churned / undialable member is dropped; a group with none left fails the
-	// activation). plan.Groups stays empty until the end, so IsMember tests only
-	// the dialable members.
+	// churned / undialable member is dropped; the active group with none left
+	// fails the activation). plan.Groups stays empty until the end, so IsMember
+	// tests only the dialable members.
 	var groups []*store.Node
 	if active.IsGroup() {
 		groups = append(groups, active)
 	}
+	// The routing targets, as pointers into a copy of rc (the fallback below
+	// rewrites them; the stored config stays as the user wrote it).
+	var targets []*routing.RuleTarget
 	if rc != nil {
-		targets := []routing.RuleTarget{rc.DefaultTarget}
-		for i := range rc.Rules {
-			targets = append(targets, rc.Rules[i].Target)
+		cp := *rc
+		cp.Rules = slices.Clone(rc.Rules)
+		plan.Routing = &cp
+		targets = append(targets, &cp.DefaultTarget)
+		for i := range cp.Rules {
+			targets = append(targets, &cp.Rules[i].Target)
 		}
 		for _, t := range targets {
 			if t.Kind != routing.TargetNode {
 				continue
 			}
-			g := prof.FindNodeByID(t.Node)
-			if g == nil {
-				return plan, fmt.Errorf("routing %q targets node %s, which no longer exists in the profile", rc.Name, t.Node)
-			}
-			if g.IsGroup() && !slices.ContainsFunc(groups, func(n *store.Node) bool { return n.ID == g.ID }) {
+			if g := prof.FindNodeByID(t.Node); g != nil && g.IsGroup() && !slices.ContainsFunc(groups, func(n *store.Node) bool { return n.ID == g.ID }) {
 				groups = append(groups, g)
 			}
 		}
@@ -595,10 +611,10 @@ func buildPlan(prof *store.Profile, active *store.Node, rc *routing.Config) (eng
 			}
 		}
 		if len(members) == 0 && g.ID == active.ID {
-			return plan, fmt.Errorf("group %q has no dialable members to select among", g.DisplayName())
+			return plan, nil, fmt.Errorf("group %q has no dialable members to select among", g.DisplayName())
 		}
 		if len(members) == 0 {
-			return plan, fmt.Errorf("routing %q targets group %q, which has no dialable members", rc.Name, g.DisplayName())
+			continue // a routing target only: falls back below
 		}
 		lowered = append(lowered, engine.GroupPlan{
 			ID:        g.ID,
@@ -610,7 +626,31 @@ func buildPlan(prof *store.Profile, active *store.Node, rc *routing.Config) (eng
 		})
 	}
 	plan.Groups = lowered
-	return plan, nil
+
+	// A target this plan cannot resolve — its node or group gone from the
+	// profile (a removed subscription, a provider drop), a group left with no
+	// dialable member, an undialable node — falls back to the selector (the
+	// active node) with a warning instead of failing every activation.
+	var warnings []string
+	for i, t := range targets {
+		if t.Kind != routing.TargetNode || plan.IsMember(t.Node) {
+			continue
+		}
+		where := "default target"
+		if i > 0 {
+			where = fmt.Sprintf("rule %d", i)
+		}
+		reason := "no longer exists in the profile"
+		what := "node " + t.Node
+		if n := prof.FindNodeByID(t.Node); n != nil && n.IsGroup() {
+			what, reason = fmt.Sprintf("group %q (%s)", n.DisplayName(), n.ID), "has no dialable members"
+		} else if n != nil {
+			what, reason = fmt.Sprintf("node %q (%s)", n.DisplayName(), n.ID), "cannot be dialed"
+		}
+		warnings = append(warnings, fmt.Sprintf("routing %q %s: %s %s; using the active node instead", rc.Name, where, what, reason))
+		*t = routing.RuleTarget{Kind: routing.TargetDefaultProxy}
+	}
+	return plan, warnings, nil
 }
 
 // stop closes the running session. Role-scoped stop died with the pid model:
@@ -630,7 +670,7 @@ func (m *manager) stop(req api.Request) api.Response {
 	err := m.sess.Close()
 	m.sess = nil
 	m.plan = engine.SessionPlan{}
-	m.active = nil
+	m.active, m.routing, m.routingWarnings = nil, nil, nil
 	// An EXPLICIT stop is user intent — the next daemon start must not
 	// restore (unlike shutdown, which keeps the record).
 	if err := m.store.ClearLastSession(); err != nil {
@@ -891,11 +931,12 @@ func (m *manager) status() api.Response {
 		return api.Response{Status: api.StatusIdle, DaemonVersion: m.version}
 	}
 	resp := api.Response{
-		Status:         api.StatusRunning,
-		DaemonVersion:  m.version,
-		Entries:        m.entriesLocked(),
-		Active:         m.activeCopyLocked(),
-		ActiveNodeLive: m.liveNodeNameLocked(),
+		Status:          api.StatusRunning,
+		DaemonVersion:   m.version,
+		Entries:         m.entriesLocked(),
+		Active:          m.activeCopyLocked(),
+		ActiveNodeLive:  m.liveNodeNameLocked(),
+		RoutingWarnings: m.routingWarnings,
 	}
 	return resp
 }
@@ -995,6 +1036,7 @@ func (m *manager) stateEventLocked() api.Event {
 	if m.sess != nil {
 		ev.Entries = m.entriesLocked()
 		ev.ActiveNodeLive = m.liveNodeNameLocked()
+		ev.RoutingWarnings = m.routingWarnings
 	}
 	return ev
 }

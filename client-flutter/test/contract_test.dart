@@ -157,10 +157,12 @@ final responseCases = <String, void Function(Response)>{
     expect(r.active?.tun, isFalse);
     expect(r.activeNodeLive, 'Grimnir [VLESS - tcp]');
     expect(r.daemonVersion, 'v0.1.0');
+    expect(r.routingWarnings.single, startsWith('routing "basic" rule 2:'));
   },
   'responses/running_no_context.json': (r) {
     r as RunningResponse;
     expect(r.entries, hasLength(1));
+    expect(r.routingWarnings, isEmpty);
     expect(r.active, isNull);
     expect(r.activeNodeLive, isNull);
     expect(r.daemonVersion, 'v0.1.0');
@@ -437,6 +439,7 @@ final eventCases = <String, void Function(Event)>{
     // The daemon pushes the live node on the state event (an urltest
     // auto-switch reaches the client without the status poll).
     expect(e.activeNodeLive, 'Grimnir [VLESS - tcp]');
+    expect(e.routingWarnings.single, startsWith('routing "basic" rule 2:'));
   },
   'events/traffic.json': (e) {
     e as TrafficEvent;

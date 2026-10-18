@@ -176,14 +176,14 @@ func TestGroupVerbsDoNotPanic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gplan, err := buildPlan(prof, prof.FindNodeByName("Auto"), nil)
+	gplan, _, err := buildPlan(prof, prof.FindNodeByName("Auto"), nil)
 	if err != nil {
 		t.Fatalf("buildPlan for the group must succeed (lowered): %v", err)
 	}
 	if len(gplan.Groups) != 1 || gplan.Groups[0].Name != "Auto" || len(gplan.Groups[0].Members) != 1 {
 		t.Errorf("group not lowered to a urltest plan: %+v", gplan.Groups)
 	}
-	plan, err := buildPlan(prof, prof.FindNodeByName("node-x"), nil)
+	plan, _, err := buildPlan(prof, prof.FindNodeByName("node-x"), nil)
 	if err != nil {
 		t.Fatalf("buildPlan(node-x): %v", err)
 	}
@@ -320,7 +320,7 @@ func TestRoutingTargetsGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	rc := prof.FindRouting("g")
-	plan, err := buildPlan(prof, prof.FindNodeByName("node-x"), rc)
+	plan, _, err := buildPlan(prof, prof.FindNodeByName("node-x"), rc)
 	if err != nil {
 		t.Fatalf("buildPlan(node-x) with a group target: %v", err)
 	}
@@ -339,27 +339,155 @@ func TestRoutingTargetsGroup(t *testing.T) {
 	prof.Nodes = append(prof.Nodes, store.Node{ID: "77777777-7777-7777-7777-777777777777",
 		Group: &store.GroupSpec{Name: "Second", Members: []string{"11111111-1111-1111-1111-111111111111"}}})
 	rc.DefaultTarget = routing.RuleTarget{Kind: routing.TargetNode, Node: "77777777-7777-7777-7777-777777777777"}
-	plan, err = buildPlan(prof, prof.FindNodeByName("Auto"), rc)
+	plan, _, err = buildPlan(prof, prof.FindNodeByName("Auto"), rc)
 	if err != nil {
 		t.Fatalf("buildPlan(Auto) with another group target: %v", err)
 	}
 	if len(plan.Groups) != 2 || plan.Groups[0].Name != "Auto" || plan.Groups[1].Name != "Second" {
 		t.Errorf("groups = %+v, want [Auto Second]", plan.Groups)
 	}
+}
 
-	// A referenced group with no dialable member fails the activation by name.
-	prof.Nodes = append(prof.Nodes, store.Node{ID: "66666666-6666-6666-6666-666666666666",
-		Group: &store.GroupSpec{Name: "Empty", Members: []string{"ghost"}}})
-	rc.DefaultTarget = routing.RuleTarget{Kind: routing.TargetNode, Node: "66666666-6666-6666-6666-666666666666"}
-	if _, err := buildPlan(prof, prof.FindNodeByName("node-x"), rc); err == nil || !strings.Contains(err.Error(), `group "Empty"`) {
-		t.Errorf("an empty referenced group must fail by name: %v", err)
+// fallbackProfile: node-x (active) and an xhttp node pinned to sing-box (no
+// core dials it), plus subscription sub-1 with one node, the provider's own
+// group over it and a user all_of_sub group. Routing "r" targets each of them
+// and a node id that never existed.
+const fallbackProfile = `{
+  "schema_version": 2,
+  "name": "main",
+  "active_node_id": "11111111-1111-1111-1111-111111111111",
+  "subscriptions": [
+    {"id": "sub-1", "name": "MySub", "url": "https://example.com/sub", "last_updated": "2026-08-26T00:00:00Z", "update_interval_sec": 86400, "enabled": true, "format": "auto"}
+  ],
+  "nodes": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111", "sub_id": null,
+      "profile": {"vless": {
+        "server_name": "node-x", "uuid": "88f2c0dc-a8e3-49f4-89b9-b3b54f1cad3a",
+        "address": "203.0.113.1", "port": 443, "encryption": "none",
+        "security": {"kind": "reality", "reality": {"sni": "google.com", "fp": "chrome",
+          "pbk": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY", "sid": "01ab"}},
+        "transport": {"kind": "tcp"}
+      }},
+      "preferences": {"core_override": null}
+    },
+    {
+      "id": "33333333-3333-3333-3333-333333333333", "sub_id": null,
+      "profile": {"vless": {
+        "server_name": "xhttp-pinned", "uuid": "88f2c0dc-a8e3-49f4-89b9-b3b54f1cad3a",
+        "address": "203.0.113.3", "port": 443, "encryption": "none",
+        "security": {"kind": "reality", "reality": {"sni": "google.com", "fp": "chrome",
+          "pbk": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY", "sid": "01ab"}},
+        "transport": {"kind": "xhttp", "xhttp": {"path": "/x", "mode": "auto"}}
+      }},
+      "preferences": {"core_override": "SingBox"}
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222222", "sub_id": "sub-1",
+      "profile": {"vless": {
+        "server_name": "sub-node", "uuid": "88f2c0dc-a8e3-49f4-89b9-b3b54f1cad3a",
+        "address": "198.51.100.5", "port": 443, "encryption": "none",
+        "security": {"kind": "reality", "reality": {"sni": "example.com", "fp": "chrome",
+          "pbk": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY", "sid": "01ab"}},
+        "transport": {"kind": "tcp"}
+      }},
+      "preferences": {"core_override": null}
+    },
+    {
+      "id": "44444444-4444-4444-4444-444444444444", "sub_id": "sub-1", "profile": null,
+      "group": {"name": "Provider Auto", "members": ["22222222-2222-2222-2222-222222222222"]},
+      "preferences": {"core_override": null}
+    },
+    {
+      "id": "66666666-6666-6666-6666-666666666666", "sub_id": null, "profile": null,
+      "group": {"name": "SubAuto", "all_of_sub": "sub-1"},
+      "preferences": {"core_override": null}
+    }
+  ],
+  "routing_configs": [
+    {"id": "r1", "name": "r", "rule_sets": [], "rules": [
+      {"target": {"Node": "11111111-1111-1111-1111-111111111111"}, "domain_keyword": ["a"]},
+      {"target": {"Node": "44444444-4444-4444-4444-444444444444"}, "domain_keyword": ["b"]},
+      {"target": {"Node": "66666666-6666-6666-6666-666666666666"}, "domain_keyword": ["c"]},
+      {"target": {"Node": "55555555-5555-5555-5555-555555555555"}, "domain_keyword": ["d"]},
+      {"target": {"Node": "33333333-3333-3333-3333-333333333333"}, "domain_keyword": ["e"]}
+    ], "default_target": {"Node": "66666666-6666-6666-6666-666666666666"}}
+  ],
+  "active_routing_id": "r1"
+}`
+
+// TestRoutingUnresolvableTargetsFallBack: after the subscription is removed,
+// the provider group is gone and the all_of_sub group is empty; with a missing
+// and an undialable node target too, the plan still builds — each such target
+// routes through the selector with one warning — while a live target keeps its
+// tag and the stored config is left untouched. The active group with no
+// dialable member stays fatal.
+func TestRoutingUnresolvableTargetsFallBack(t *testing.T) {
+	m := managerWithProfile(t, fallbackProfile)
+	prof, err := m.store.LoadProfile("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prof.RemoveSubscription("sub-1") {
+		t.Fatal("remove sub-1")
+	}
+	rc := prof.ActiveRouting()
+	plan, warnings, err := buildPlan(prof, prof.FindNodeByName("node-x"), rc)
+	if err != nil {
+		t.Fatalf("unresolvable routing targets must not fail the activation: %v", err)
+	}
+	want := []string{
+		`routing "r" default target: group "SubAuto" (66666666-6666-6666-6666-666666666666) has no dialable members`,
+		`routing "r" rule 2: node 44444444-4444-4444-4444-444444444444 no longer exists`,
+		`routing "r" rule 3: group "SubAuto"`,
+		`routing "r" rule 4: node 55555555-5555-5555-5555-555555555555 no longer exists`,
+		`routing "r" rule 5: node "xhttp-pinned" (33333333-3333-3333-3333-333333333333) cannot be dialed`,
+	}
+	if len(warnings) != len(want) {
+		t.Fatalf("warnings = %q, want %d", warnings, len(want))
+	}
+	for i, w := range want {
+		if !strings.HasPrefix(warnings[i], w) {
+			t.Errorf("warning %d = %q, want prefix %q", i, warnings[i], w)
+		}
+	}
+	if rc.DefaultTarget.Kind != routing.TargetNode || rc.Rules[1].Target.Kind != routing.TargetNode {
+		t.Errorf("the stored routing must stay as written: %+v", rc)
+	}
+	sb, _, err := engine.PlanSocksConfigs(plan, "127.0.0.1", 1080)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	var cfg struct {
+		Route struct {
+			Rules []struct {
+				DomainKeyword []string `json:"domain_keyword"`
+				Outbound      string   `json:"outbound"`
+			} `json:"rules"`
+			Final string `json:"final"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal(sb, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, r := range cfg.Route.Rules {
+		if len(r.DomainKeyword) == 1 {
+			got[r.DomainKeyword[0]] = r.Outbound
+		}
+	}
+	wantOut := map[string]string{"a": "11111111-1111-1111-1111-111111111111",
+		"b": engine.SelectorTag, "c": engine.SelectorTag, "d": engine.SelectorTag, "e": engine.SelectorTag}
+	for k, v := range wantOut {
+		if got[k] != v {
+			t.Errorf("rule %q outbound = %q, want %q", k, got[k], v)
+		}
+	}
+	if cfg.Route.Final != engine.SelectorTag {
+		t.Errorf("final = %q, want the selector", cfg.Route.Final)
 	}
 
-	// A target whose node or group is gone from the profile fails by routing
-	// name and id, not as an opaque "not embedded".
-	rc.DefaultTarget = routing.RuleTarget{Kind: routing.TargetNode, Node: "55555555-5555-5555-5555-555555555555"}
-	_, err = buildPlan(prof, prof.FindNodeByName("node-x"), rc)
-	if err == nil || !strings.Contains(err.Error(), `routing "g"`) || !strings.Contains(err.Error(), "55555555-5555-5555-5555-555555555555, which no longer exists") {
-		t.Errorf("a dangling target must fail readably: %v", err)
+	if _, _, err := buildPlan(prof, prof.FindNodeByName("SubAuto"), rc); err == nil || !strings.Contains(err.Error(), `group "SubAuto" has no dialable members`) {
+		t.Errorf("the active group with no dialable member must stay fatal: %v", err)
 	}
 }

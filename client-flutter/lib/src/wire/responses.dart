@@ -84,7 +84,8 @@ final class RunningResponse extends Response {
       {this.entries = const [],
       this.active,
       this.activeNodeLive,
-      this.daemonVersion});
+      this.daemonVersion,
+      this.routingWarnings = const []});
 
   RunningResponse.fromJson(Map<String, Object?> json)
       : entries = _objList(json['entries'])
@@ -94,11 +95,16 @@ final class RunningResponse extends Response {
             ? PersistedEntry.fromJson(json['active'] as Map<String, Object?>)
             : null,
         activeNodeLive = _strOpt(json['active_node_live']),
-        daemonVersion = _strOpt(json['daemon_version']);
+        daemonVersion = _strOpt(json['daemon_version']),
+        routingWarnings = _strList(json['routing_warnings']);
 
   final List<CoreEntry> entries;
   final PersistedEntry? active;
   final String? activeNodeLive;
+
+  /// Routing targets the daemon could not resolve (a node or group gone or
+  /// undialable) and sent through the active node instead, one line each.
+  final List<String> routingWarnings;
 
   /// The daemon's build version; null from a daemon predating the field.
   final String? daemonVersion;

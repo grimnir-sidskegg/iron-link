@@ -132,6 +132,10 @@ class DaemonSession extends ChangeNotifier {
   /// auto-switch included) and refreshed by the backstop status poll.
   String? activeNodeLive;
 
+  /// Routing targets the running session sent through the active node because
+  /// their node or group is gone or undialable (state event / status poll).
+  List<String> routingWarnings = const [];
+
   /// The daemon's build version, read back from the status poll (null until
   /// the first poll answers, or when the daemon predates the field).
   String? daemonVersion;
@@ -249,6 +253,7 @@ class DaemonSession extends ChangeNotifier {
     entries = const [];
     active = null;
     activeNodeLive = null;
+    routingWarnings = const [];
     if (changed) notifyListeners();
     _retry?.cancel();
     _retry = Timer(_reconnectDelay, _connectEvents);
@@ -259,6 +264,7 @@ class DaemonSession extends ChangeNotifier {
       case StateEvent():
         entries = event.entries;
         active = event.active;
+        routingWarnings = event.routingWarnings;
         // A state event is at least as fresh as any poll already in flight, so
         // invalidate that poll's late reply (bump the generation exactly as a
         // switch's refreshStatus does) — otherwise a pre-auto-switch poll
@@ -475,11 +481,13 @@ class DaemonSession extends ChangeNotifier {
           entries = reply.entries;
           active = reply.active ?? active;
           activeNodeLive = reply.activeNodeLive;
+          routingWarnings = reply.routingWarnings;
           daemonVersion = reply.daemonVersion;
         case IdleResponse():
           entries = const [];
           active = null;
           activeNodeLive = null;
+          routingWarnings = const [];
           daemonVersion = reply.daemonVersion;
         default:
           return;

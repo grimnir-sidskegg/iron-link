@@ -131,6 +131,8 @@ class _StatusHeaderState extends State<StatusHeader> {
                 ),
               if (showUpdate) UpdateBanner(session: s, status: offered),
             ],
+            if (running && s.routingWarnings.isNotEmpty)
+              _RoutingWarningsBanner(warnings: s.routingWarnings),
             // 1) The power orb + status word.
             Center(
               child: _PowerOrb(
@@ -744,6 +746,48 @@ class _DaemonDownBannerState extends State<_DaemonDownBanner> {
                         onPressed: _busy ? null : _start,
                       ),
                     ],
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The running session's routing fallbacks: rules whose node or group is gone
+/// or undialable now go through the active node. Shown until the next
+/// activation resolves them (the daemon re-sends the list on every state).
+class _RoutingWarningsBanner extends StatelessWidget {
+  const _RoutingWarningsBanner({required this.warnings});
+
+  final List<String> warnings;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.iron;
+    final warning = context.appColors.warning;
+    final body = Theme.of(context).textTheme.bodyMedium?.copyWith(color: t.text);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: IronCard(
+        tinted: warning,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.warning_amber, color: warning),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Some routing targets are unavailable',
+                      style: body?.copyWith(fontWeight: FontWeight.w600)),
+                  for (final w in warnings) ...[
+                    const SizedBox(height: 4),
+                    Text(w, style: body),
                   ],
                 ],
               ),

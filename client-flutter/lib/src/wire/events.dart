@@ -22,7 +22,11 @@ sealed class Event {
 /// connection and one per transition. Idle is the BARE `{"event":"state"}`
 /// — both fields default. Idempotent by design.
 final class StateEvent extends Event {
-  const StateEvent({this.entries = const [], this.active, this.activeNodeLive});
+  const StateEvent(
+      {this.entries = const [],
+      this.active,
+      this.activeNodeLive,
+      this.routingWarnings = const []});
 
   StateEvent.fromJson(Map<String, Object?> json)
       : entries = _objList(json['entries'])
@@ -31,7 +35,8 @@ final class StateEvent extends Event {
         active = json['active'] is Map<String, Object?>
             ? PersistedEntry.fromJson(json['active'] as Map<String, Object?>)
             : null,
-        activeNodeLive = _strOpt(json['active_node_live']);
+        activeNodeLive = _strOpt(json['active_node_live']),
+        routingWarnings = _strList(json['routing_warnings']);
 
   final List<CoreEntry> entries;
   final PersistedEntry? active;
@@ -41,6 +46,9 @@ final class StateEvent extends Event {
   /// so an auto-switch reaches the client WITHOUT waiting for the status poll.
   /// Absent (null) on an idle state event.
   final String? activeNodeLive;
+
+  /// The running session's routing fallbacks ([RunningResponse.routingWarnings]).
+  final List<String> routingWarnings;
 
   bool get isRunning => entries.any((e) => e.isRunning);
 }

@@ -441,6 +441,10 @@ type Response struct {
 	// the in-process selector, not a Clash API — GO_DAEMON_PLAN.md §6)
 	Active         *PersistedEntry `json:"active,omitempty"`
 	ActiveNodeLive *string         `json:"active_node_live,omitempty"`
+	// running: the routing targets that could not be resolved (a node or
+	// group gone or undialable) and fell back to the active node, one line
+	// each. The same list rides the state event.
+	RoutingWarnings []string `json:"routing_warnings,omitempty"`
 
 	// running / idle (the status verb): the daemon's build version. Always
 	// populated there — the stamp is at least "dev", so omitempty never drops
@@ -531,6 +535,8 @@ type Event struct {
 	// when an Auto group is active) — pushed so an auto-switch reaches clients
 	// without waiting for the status poll. Absent on an idle state.
 	ActiveNodeLive *string `json:"active_node_live,omitempty"`
+	// state: the running session's routing fallbacks (Response.RoutingWarnings).
+	RoutingWarnings []string `json:"routing_warnings,omitempty"`
 
 	// traffic: bytes in the LAST SECOND (not cumulative)
 	Up   *uint64 `json:"up,omitempty"`

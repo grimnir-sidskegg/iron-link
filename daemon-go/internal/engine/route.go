@@ -173,7 +173,7 @@ func (p *SessionPlan) routeBlock(tun bool, domainResolver string) (map[string]an
 		for i := range p.Routing.Rules {
 			compiled, err := p.compileRule(p.Routing.Rules[i])
 			if err != nil {
-				return nil, fmt.Errorf("routing %q rule %d: %w", p.Routing.Name, i, err)
+				return nil, fmt.Errorf("routing %q rule %d: %w", p.Routing.Name, i+1, err)
 			}
 			rules = append(rules, compiled)
 		}

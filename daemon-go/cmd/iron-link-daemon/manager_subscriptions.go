@@ -284,7 +284,7 @@ func (m *manager) sessionReconnectLocked(profileName string, p *store.Profile, c
 	if base == nil {
 		base = current
 	}
-	fresh, err := buildPlan(p, base, m.plan.Routing)
+	fresh, _, err := buildPlan(p, base, m.routing)
 	if err != nil {
 		m.logSink("warn", fmt.Sprintf("%s: %v; the running session is kept as it is", cause, err))
 		return nil
