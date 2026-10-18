@@ -192,6 +192,31 @@ func TestManagerLastSessionRestore(t *testing.T) {
 	}
 }
 
+// TestManagerLastSessionRestoreStaleID: a record whose node_id no longer
+// exists (the node re-added under the same name) restores by its name. (A
+// name-only record, from before node_id, is TestManagerLastSessionRestore.)
+func TestManagerLastSessionRestoreStaleID(t *testing.T) {
+	m := fixtureManager(t)
+	s, err := m.store.LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.RestoreOnStart = true
+	if err := m.store.SaveSettings(s); err != nil {
+		t.Fatal(err)
+	}
+	profile, node, stale := "main", "node-b", "00000000-0000-0000-0000-00000000dead"
+	if err := m.store.SaveLastSession(api.PersistedEntry{Profile: &profile, Node: &node, NodeID: &stale}); err != nil {
+		t.Fatal(err)
+	}
+	m.restoreLastSession()
+	defer m.Handle(api.Request{Command: api.CmdStop})
+	st := m.Handle(api.Request{Command: api.CmdStatus})
+	if st.Status != api.StatusRunning || st.Active == nil || *st.Active.Node != "node-b" || *st.Active.NodeID == stale {
+		t.Fatalf("status after a stale-id restore: %+v", st.Active)
+	}
+}
+
 // TestManagerActivateWithRouting: activate compiles the named routing into
 // the plan; the persisted context carries the CANONICAL routing name.
 func TestManagerActivateWithRouting(t *testing.T) {

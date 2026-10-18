@@ -54,10 +54,14 @@ type CoreEntry struct {
 // profile/node; the daemon re-plans on restore.
 //
 // Profile/Node/Routing are nullable and serialize as JSON null when absent
-// (no omitempty — the field is always present). Tun is always a bool.
+// (no omitempty — the field is always present). Tun is always a bool. Node is
+// the display name (it MAY collide); NodeID is the store id the selection is
+// resolved by, absent only in a last_session written before it existed (which
+// then resolves by Node).
 type PersistedEntry struct {
 	Profile *string `json:"profile"`
 	Node    *string `json:"node"`
+	NodeID  *string `json:"node_id,omitempty"`
 	Routing *string `json:"routing"`
 	Tun     bool    `json:"tun"`
 }

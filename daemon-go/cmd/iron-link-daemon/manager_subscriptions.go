@@ -244,7 +244,7 @@ func (m *manager) landSubscriptionFetch(profileName string, fr subscription.Fetc
 
 // sessionReconnect is a decided re-activation: the request that re-runs the
 // running session's activation, the session it was decided against and the
-// selection the decision was made against (m.active.Node as read then).
+// selection the decision was made against (m.active.NodeID as read then).
 type sessionReconnect struct {
 	req       api.Request
 	sess      *engine.Session
@@ -260,24 +260,22 @@ type sessionReconnect struct {
 // the running session was compiled around (m.plan.ActiveTag — so the group
 // lowering and the xray ordering line up with m.plan; a live switch since
 // then moved the selection, not the embedded set) and compared member-wise
-// (planMembersEqual). The current selection (m.active.Node, a display name)
-// is resolved in the new profile by name, then through the running plan's
-// tag for that name (a provider rename keeps the stable id): missing, or
-// the plan no longer buildable, keeps the running session as it is with a
-// "warn". Callers hold mu.
+// (planMembersEqual). The current selection is resolved in the new profile
+// by its id (m.active.NodeID — a refresh carries the stable id over a
+// provider rename), then by its name (a node moved to another server is
+// re-minted under the same name): missing, or the plan no longer buildable,
+// keeps the running session as it is with a "warn". Callers hold mu.
 func (m *manager) sessionReconnectLocked(profileName string, p *store.Profile, cause string) *sessionReconnect {
-	if m.sess == nil || m.active == nil || m.active.Profile == nil || m.active.Node == nil || *m.active.Profile != profileName {
+	if m.sess == nil || m.active == nil || m.active.Profile == nil || m.active.Node == nil || m.active.NodeID == nil || *m.active.Profile != profileName {
 		return nil
 	}
-	selection := *m.active.Node
-	current := p.FindNodeByName(selection)
+	selection := *m.active.NodeID
+	current := p.FindNodeByID(selection)
 	if current == nil {
-		if tag, ok := m.plan.MemberTagForName(selection); ok {
-			current = p.FindNodeByID(tag)
-		}
+		current = p.FindNodeByName(*m.active.Node)
 	}
 	if current == nil {
-		m.logSink("warn", fmt.Sprintf("%s removed the active node %q; the running session is kept as it is", cause, selection))
+		m.logSink("warn", fmt.Sprintf("%s removed the active node %q; the running session is kept as it is", cause, *m.active.Node))
 		return nil
 	}
 	base := p.FindNodeByID(m.plan.ActiveTag)
@@ -303,7 +301,7 @@ func (m *manager) sessionReconnectLocked(profileName string, p *store.Profile, c
 		req: api.Request{
 			Command: api.CmdActivate,
 			Profile: &profile,
-			Node:    &name,
+			Node:    &current.ID,
 			Routing: m.active.Routing,
 			Tun:     &tun,
 		},
@@ -325,7 +323,7 @@ func (m *manager) reconnectSession(rc sessionReconnect) {
 		return
 	}
 	m.mu.Lock()
-	if m.sess != rc.sess || m.active == nil || m.active.Node == nil || *m.active.Node != rc.selection {
+	if m.sess != rc.sess || m.active == nil || m.active.NodeID == nil || *m.active.NodeID != rc.selection {
 		m.mu.Unlock()
 		m.logSink("info", fmt.Sprintf("%s changed the active selection %q, but the session or selection changed meanwhile; reconnect skipped", rc.cause, rc.name))
 		return

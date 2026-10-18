@@ -162,7 +162,8 @@ class DaemonClient {
   /// node's result the moment its own probe returns. A slow/hung node only
   /// delays its OWN result — bounded by the daemon's per-request probe
   /// budget — never the others, unlike [testLatency] whose single reply is
-  /// gated on the slowest node in the batch.
+  /// gated on the slowest node in the batch. Each result's `node` is the ref
+  /// it was requested by (an id stays an id), not the reply's display name.
   ///
   /// [concurrency] mirrors the daemon's own `latencyProbeConcurrency`: each
   /// single-node request spins one ephemeral probe core, and the daemon's
@@ -184,19 +185,19 @@ class DaemonClient {
 
     void drain() {
       while (active < concurrency && next < pending.length) {
-        final name = pending[next++];
+        final ref = pending[next++];
         active++;
-        testLatency([name]).then<void>((results) {
+        testLatency([ref]).then<void>((results) {
           if (controller.isClosed) return;
-          controller.add(results.isNotEmpty
-              ? results.first
-              : LatencyResult(node: name));
+          controller.add(LatencyResult(
+              node: ref,
+              latencyMs: results.isNotEmpty ? results.first.latencyMs : null));
         }, onError: (Object e, StackTrace st) {
           if (controller.isClosed) return;
           if (e is DaemonUnreachable) {
             controller.addError(e, st); // daemon down — the whole sweep is void
           } else {
-            controller.add(LatencyResult(node: name)); // this node only: "—"
+            controller.add(LatencyResult(node: ref)); // this node only: "—"
           }
         }).whenComplete(() {
           active--;

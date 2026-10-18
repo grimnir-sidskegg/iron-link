@@ -720,6 +720,46 @@ func TestSubscriptionRefreshReconnectsChangedSession(t *testing.T) {
 // TestSubscriptionReconnectSkippedWhenSessionChanged: a reconnect decided
 // against one session is dropped when that session is no longer the
 // running one by the time it would start (here: stopped in between).
+// TestSubscriptionReconnectKeepsIDWithDuplicateNames: two nodes named "sub-a",
+// the session on the SECOND. The first moves server (a new id under the same
+// name), so the refresh reconnects — onto the second still, by its id, not
+// onto the first "sub-a" a name lookup would find.
+func TestSubscriptionReconnectKeepsIDWithDuplicateNames(t *testing.T) {
+	subLinkBAsA := strings.Replace(subLinkB, "#sub-b", "#sub-a", 1)
+	prov := newSubProvider(t, subLinkA+"\n"+subLinkBAsA)
+	m := subLoopManager(t)
+	if add := m.Handle(api.Request{Command: api.CmdAddSub, URL: strPtr(prov.srv.URL), Name: strPtr("prov")}); add.Status != api.StatusRefreshed {
+		t.Fatalf("add_subscription: %+v", add)
+	}
+	p, err := m.store.LoadProfile("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := ""
+	for i := range p.Nodes {
+		if p.Nodes[i].DisplayName() == "sub-a" && p.Nodes[i].ID != p.FindNodeByName("sub-a").ID {
+			second = p.Nodes[i].ID
+		}
+	}
+	if second == "" {
+		t.Fatalf("want two nodes named sub-a: %+v", p.Nodes)
+	}
+	if resp := m.Handle(api.Request{Command: api.CmdActivate, Node: &second}); resp.Status != api.StatusActivated {
+		t.Fatalf("activate: %+v", resp)
+	}
+	defer m.Handle(api.Request{Command: api.CmdStop})
+
+	prov.serve(subLinkAMoved + "\n" + subLinkBAsA)
+	editSubscriptions(t, m, func(p *store.Profile) { p.Subscriptions[0].LastUpdated = time.Now().UTC().Add(-24 * time.Hour) })
+	m.sweepSubscriptions(context.Background())
+	if m.activations != 2 {
+		t.Fatalf("the moved member must reconnect, activations = %d", m.activations)
+	}
+	if st := m.Handle(api.Request{Command: api.CmdStatus}); st.Active == nil || st.Active.NodeID == nil || *st.Active.NodeID != second {
+		t.Fatalf("reconnected onto %+v, want the second sub-a %s", st.Active, second)
+	}
+}
+
 func TestSubscriptionReconnectSkippedWhenSessionChanged(t *testing.T) {
 	prov := newSubProvider(t, subLinkA)
 	m := subLoopManager(t)

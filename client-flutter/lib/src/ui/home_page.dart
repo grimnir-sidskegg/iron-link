@@ -59,7 +59,7 @@ class _HomePageState extends State<HomePage> {
   List<NodeInfo>? _nodes;
   List<SubscriptionInfo>? _subs;
   String? _error;
-  final Map<String, int?> _latencies = {}; // by node NAME — survives reloads
+  final Map<String, int?> _latencies = {}; // by node id — survives reloads
   final Set<String> _probing = {};
   bool _refreshing = false;
 
@@ -84,7 +84,7 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _seenStoreRev = widget.session.storeRev;
     _running = widget.session.isRunning;
-    _live = widget.session.activeNodeLive;
+    _live = widget.session.activeNodeLiveId ?? widget.session.activeNodeLive;
     widget.session.addListener(_onSession);
     _load();
   }
@@ -107,10 +107,11 @@ class _HomePageState extends State<HomePage> {
       _seenStoreRev = s.storeRev;
       _load();
     }
-    if (s.isRunning != _running || s.activeNodeLive != _live) {
+    if (s.isRunning != _running ||
+        (s.activeNodeLiveId ?? s.activeNodeLive) != _live) {
       setState(() {
         _running = s.isRunning;
-        _live = s.activeNodeLive;
+        _live = s.activeNodeLiveId ?? s.activeNodeLive;
       });
     }
   }
@@ -155,8 +156,8 @@ class _HomePageState extends State<HomePage> {
   /// the others. Nodes already mid-probe are skipped (idempotent re-taps, and
   /// no two overlapping probes of the same node racing the daemon's stub
   /// socket). See [DaemonClient.testLatencyEach].
-  Future<void> _probe(List<String> names) async {
-    final pending = names.where((n) => !_probing.contains(n)).toList();
+  Future<void> _probe(List<String> ids) async {
+    final pending = ids.where((n) => !_probing.contains(n)).toList();
     if (pending.isEmpty) return;
     setState(() => _probing.addAll(pending));
     try {
@@ -348,7 +349,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _nodeDetails(NodeInfo node) async {
     // A store read (no probing), so a plain fetch-then-show is fine — there is
     // no timeout to spin through.
-    final config = await guard(context, () => widget.client.getNode(node.name));
+    final config = await guard(context, () => widget.client.getNode(node.id));
     if (config == null || !mounted) return;
     await showDialog<void>(
       context: context,
@@ -409,7 +410,7 @@ class _HomePageState extends State<HomePage> {
       context: context,
       builder: (context) => DiagnosisDialog(
         node: node.name,
-        pending: widget.client.diagnose(node.name),
+        pending: widget.client.diagnose(node.id),
       ),
     );
   }
@@ -419,7 +420,7 @@ class _HomePageState extends State<HomePage> {
       case 'switch':
         final name = await guard(
           context,
-          () => widget.client.switchNode(node.name),
+          () => widget.client.switchNode(node.id),
         );
         if (name != null && mounted) {
           showSnack(context, 'Switched to $name');
@@ -434,7 +435,7 @@ class _HomePageState extends State<HomePage> {
       case 'details':
         node.isGroup ? await _groupDetails(node) : await _nodeDetails(node);
       case 'test':
-        await _probe([node.name]);
+        await _probe([node.id]);
       case 'diagnose':
         await _diagnose(node);
       case 'pin_sing':
@@ -493,10 +494,10 @@ class _HomePageState extends State<HomePage> {
       }
       return;
     }
-    setState(() => _switching = node.name);
+    setState(() => _switching = node.id);
     final name = await guard(
       context,
-      () => widget.client.switchNode(node.name),
+      () => widget.client.switchNode(node.id),
     );
     if (name != null && mounted) {
       // live switch ok → persist the default too (one click = switch + default)
@@ -731,7 +732,7 @@ class _HomePageState extends State<HomePage> {
                 ? null
                 : () => _probe(nodes
                     .where((n) => !n.isGroup)
-                    .map((n) => n.name)
+                    .map((n) => n.id)
                     .toList()),
           ),
           const SizedBox(width: 8),
@@ -750,7 +751,10 @@ class _HomePageState extends State<HomePage> {
   Widget _nodeRow(NodeInfo node, {required bool indented}) {
     final t = context.iron;
     final live = widget.session.activeNodeLive;
-    final isLive = live != null && node.name == live;
+    final liveId = widget.session.activeNodeLiveId;
+    // By id (names may collide); a daemon predating the id gets the name.
+    final isLive =
+        live != null && (liveId != null ? node.id == liveId : node.name == live);
     final tooltip = isLive
         ? 'Live node'
         : widget.session.isRunning
@@ -765,7 +769,7 @@ class _HomePageState extends State<HomePage> {
         : node.active
         ? t.accent
         : t.dim;
-    final circle = _switching == node.name
+    final circle = _switching == node.id
         ? SizedBox(
             width: 20,
             height: 20,
@@ -820,7 +824,7 @@ class _HomePageState extends State<HomePage> {
                       if (node.active &&
                           widget.session.isRunning &&
                           live != null &&
-                          live != node.name)
+                          !isLive)
                         IronKindChip('now: $live', accent: true),
                     ] else ...[
                       // The proxy protocol (vless/shadowsocks/vmess/trojan/
@@ -846,7 +850,7 @@ class _HomePageState extends State<HomePage> {
             // individually) — no spinner, no reading.
             child: node.isGroup
                 ? null
-                : _probing.contains(node.name)
+                : _probing.contains(node.id)
                 ? Center(
                     child: SizedBox(
                       width: 16,
@@ -858,8 +862,8 @@ class _HomePageState extends State<HomePage> {
                     ),
                   )
                 : Text(
-                    _latencies.containsKey(node.name)
-                        ? formatLatency(_latencies[node.name])
+                    _latencies.containsKey(node.id)
+                        ? formatLatency(_latencies[node.id])
                         : '',
                     textAlign: TextAlign.end,
                     style: context.mono(12.5, color: t.dim),

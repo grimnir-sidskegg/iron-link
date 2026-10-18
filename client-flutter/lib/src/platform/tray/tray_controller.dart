@@ -33,7 +33,7 @@ abstract class TrayController with WindowListener {
   bool _busy = false; // a connect/disconnect/switch is in flight
   bool _windowHooked = false;
   TrayState _shown = TrayState.off;
-  String? _lastActive; // last activeNodeLive, to repaint the node radio
+  String? _lastActive; // last live node (id, else name), to repaint the radio
   String? _lastUpdateLabel; // the "Update to vX…" entry, to add/drop it
   bool _lastUpdateEnabled = true; // its gate, to repaint it (Windows snapshots)
   List<NodeInfo> _nodes = const [];
@@ -74,7 +74,7 @@ abstract class TrayController with WindowListener {
 
   Future<void> init() async {
     _shown = _state();
-    _lastActive = session.activeNodeLive;
+    _lastActive = session.activeNodeLiveId ?? session.activeNodeLive;
     _lastUpdateLabel = _updateLabel();
     _lastUpdateEnabled = _updateEnabled();
     try {
@@ -167,15 +167,18 @@ abstract class TrayController with WindowListener {
   // name is session.active.node; when it differs from the live node, a GROUP is
   // active (its urltest picked a member) and the marker stays on the GROUP, not
   // the member. Otherwise the live node wins. Idle falls back to the persisted
-  // default (NodeInfo.active).
+  // default (NodeInfo.active). Nodes match by id (names may collide); a daemon
+  // predating the ids is matched by name.
   bool _isCurrentNode(NodeInfo node) {
-    final live = session.activeNodeLive;
+    final byId = session.activeNodeLiveId != null;
+    final live = byId ? session.activeNodeLiveId : session.activeNodeLive;
     if (session.isRunning && live != null) {
-      final activeName = session.active?.node;
-      if (activeName != null && activeName != live) {
-        return node.name == activeName; // a group owns the live member
+      final activated = byId ? session.active?.nodeId : session.active?.node;
+      final own = byId ? node.id : node.name;
+      if (activated != null && activated != live) {
+        return own == activated; // a group owns the live member
       }
-      return node.name == live;
+      return own == live;
     }
     return node.active;
   }
@@ -200,7 +203,7 @@ abstract class TrayController with WindowListener {
   /// actually changed — NOT on every per-second traffic tick.
   Future<void> _refresh() async {
     final next = _state();
-    final active = session.activeNodeLive;
+    final active = session.activeNodeLiveId ?? session.activeNodeLive;
     final updateLabel = _updateLabel();
     final updateEnabled = _updateEnabled();
     final stateChanged = next != _shown;
@@ -237,7 +240,7 @@ abstract class TrayController with WindowListener {
     }
     try {
       // Mirror the UI: live-switch when up, then persist the profile default.
-      if (wasRunning) await client.switchNode(node.name);
+      if (wasRunning) await client.switchNode(node.id);
       await client.selectNode(node.id);
     } on ClientException catch (e) {
       debugPrint('tray: select node failed: $e');

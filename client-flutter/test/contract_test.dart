@@ -156,6 +156,9 @@ final responseCases = <String, void Function(Response)>{
     expect(r.active?.profile, 'main');
     expect(r.active?.tun, isFalse);
     expect(r.activeNodeLive, 'Grimnir [VLESS - tcp]');
+    // An older daemon sends no ids: they stay null.
+    expect(r.active?.nodeId, isNull);
+    expect(r.activeNodeLiveId, isNull);
     expect(r.daemonVersion, 'v0.1.0');
     expect(r.routingWarnings.single, startsWith('routing "basic" rule 2:'));
   },
@@ -173,6 +176,8 @@ final responseCases = <String, void Function(Response)>{
     expect(r.active?.node, 'Auto');
     expect(r.activeNodeLive, 'Frankfurt');
     expect(r.activeNodeLive, isNot(r.active?.node));
+    expect(r.active?.nodeId, '9c1e');
+    expect(r.activeNodeLiveId, '3f2a');
     expect(r.daemonVersion, 'v0.1.0');
   },
   'responses/started.json': (r) {
@@ -440,6 +445,8 @@ final eventCases = <String, void Function(Event)>{
     // auto-switch reaches the client without the status poll).
     expect(e.activeNodeLive, 'Grimnir [VLESS - tcp]');
     expect(e.routingWarnings.single, startsWith('routing "basic" rule 2:'));
+    expect(e.active?.nodeId, '3f2a');
+    expect(e.activeNodeLiveId, '3f2a');
   },
   'events/traffic.json': (e) {
     e as TrafficEvent;

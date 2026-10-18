@@ -273,6 +273,7 @@ func (m *manager) activate(req api.Request) api.Response {
 type activation struct {
 	profileName string
 	nodeName    string
+	nodeID      string
 	routing     *routing.Config // nil = no routing, everything through the selector
 	tun         bool
 	plan        engine.SessionPlan
@@ -282,7 +283,8 @@ type activation struct {
 }
 
 // prepareActivation is the lock-free half of activate: resolve the profile,
-// node and routing by name, build the plan and compile the core configs.
+// node (id or name) and routing by name, build the plan and compile the core
+// configs.
 func (m *manager) prepareActivation(req api.Request) (activation, error) {
 	var prep activation
 	profileName := ""
@@ -307,7 +309,7 @@ func (m *manager) prepareActivation(req api.Request) (activation, error) {
 
 	var node *store.Node
 	if req.Node != nil && *req.Node != "" {
-		if node = prof.FindNodeByName(*req.Node); node == nil {
+		if node = prof.FindNode(*req.Node); node == nil {
 			return prep, fmt.Errorf("node %q not found in profile %q", *req.Node, profileName)
 		}
 	} else if node = prof.ActiveNode(); node == nil {
@@ -363,6 +365,7 @@ func (m *manager) prepareActivation(req api.Request) (activation, error) {
 	return activation{
 		profileName: profileName,
 		nodeName:    node.DisplayName(),
+		nodeID:      node.ID,
 		routing:     routingCfg,
 		tun:         tun,
 		plan:        plan,
@@ -417,10 +420,11 @@ func (m *manager) startActivationLocked(prep activation) api.Response {
 	}
 	m.activations++
 	m.startedAt = time.Now()
-	profileName, nodeName := prep.profileName, prep.nodeName
+	profileName, nodeName, nodeID := prep.profileName, prep.nodeName, prep.nodeID
 	m.active = &api.PersistedEntry{
 		Profile: &profileName,
 		Node:    &nodeName,
+		NodeID:  &nodeID,
 		Tun:     prep.tun,
 	}
 	// Persist the CANONICAL routing name (the request may have passed an id,
@@ -445,8 +449,8 @@ func (m *manager) startTrafficEmitterLocked() {
 	// Seed the live-node baseline from the state the activation just broadcast,
 	// so the first tick only pushes when the urltest has actually moved.
 	lastLive := ""
-	if n := m.liveNodeNameLocked(); n != nil {
-		lastLive = *n
+	if _, id := m.liveNodeLocked(); id != nil {
+		lastLive = *id
 	}
 	go func() {
 		ticker := time.NewTicker(time.Second)
@@ -484,8 +488,8 @@ func (m *manager) broadcastLiveChange(sess *engine.Session, lastLive *string) {
 		return // this goroutine's session was replaced; let it drain and exit
 	}
 	cur := ""
-	if n := m.liveNodeNameLocked(); n != nil {
-		cur = *n
+	if _, id := m.liveNodeLocked(); id != nil {
+		cur = *id
 	}
 	if cur == *lastLive {
 		return
@@ -738,8 +742,8 @@ func (m *manager) testLatency(req api.Request) api.Response {
 	// each of which is pinged on its own. Skip them in either selection.
 	var nodes []*store.Node
 	if req.Nodes != nil {
-		for _, name := range *req.Nodes {
-			if n := prof.FindNodeByName(name); n != nil && !n.IsGroup() {
+		for _, ref := range *req.Nodes {
+			if n := prof.FindNode(ref); n != nil && !n.IsGroup() {
 				nodes = append(nodes, n)
 			}
 		}
@@ -832,7 +836,7 @@ func (m *manager) diagnose(req api.Request) api.Response {
 
 	var node *store.Node
 	if req.Node != nil && *req.Node != "" {
-		if node = prof.FindNodeByName(*req.Node); node == nil {
+		if node = prof.FindNode(*req.Node); node == nil {
 			return errResp(fmt.Sprintf("node %q not found in profile %q", *req.Node, profileName))
 		}
 	} else if node = prof.ActiveNode(); node == nil {
@@ -910,10 +914,18 @@ func (m *manager) restoreLastSession() {
 	if context == nil {
 		return
 	}
+	// By id, then by name (as sessionReconnectLocked): an older record carries
+	// only the name, and a node re-added under the same name has a new id.
+	node := context.NodeID
+	if node == nil || context.Profile == nil {
+		node = context.Node
+	} else if p, err := m.store.LoadProfile(*context.Profile); err == nil && p.FindNodeByID(*node) == nil {
+		node = context.Node
+	}
 	resp := m.activate(api.Request{
 		Command: api.CmdActivate,
 		Profile: context.Profile,
-		Node:    context.Node,
+		Node:    node,
 		Routing: context.Routing,
 		Tun:     &context.Tun,
 	})
@@ -935,9 +947,9 @@ func (m *manager) status() api.Response {
 		DaemonVersion:   m.version,
 		Entries:         m.entriesLocked(),
 		Active:          m.activeCopyLocked(),
-		ActiveNodeLive:  m.liveNodeNameLocked(),
 		RoutingWarnings: m.routingWarnings,
 	}
+	resp.ActiveNodeLive, resp.ActiveNodeLiveID = m.liveNodeLocked()
 	return resp
 }
 
@@ -954,37 +966,37 @@ func (m *manager) activeCopyLocked() *api.PersistedEntry {
 	return &cp
 }
 
-// liveNodeNameLocked resolves the IN-PROCESS live node's client-facing display
-// name (no Clash API): LiveOutbound descends one group level, so when Auto is
-// active this is the urltest's CURRENT member pick, not the group tag; the tag
-// is the node UUID, mapped back to the display name. A single-node session has
-// no selector, so the activated node is the live node by construction. Returns
-// nil when nothing runs. Callers hold mu.
-func (m *manager) liveNodeNameLocked() *string {
+// liveNodeLocked resolves the IN-PROCESS live node's client-facing display
+// name and id (no Clash API): LiveOutbound descends one group level, so when
+// Auto is active this is the urltest's CURRENT member pick, not the group tag;
+// the tag is the node UUID, mapped back to the display name. A single-node
+// session has no selector, so the activated node is the live node by
+// construction. Returns nils when nothing runs. Callers hold mu.
+func (m *manager) liveNodeLocked() (name, id *string) {
 	if m.sess == nil {
-		return nil
+		return nil, nil
 	}
 	if live, ok := m.sess.LiveOutbound(); ok {
 		if name, ok := m.plan.DisplayNameForTag(live); ok {
-			return &name
+			return &name, &live
 		}
-		return &live
+		return &live, &live
 	}
 	if m.active != nil {
-		return m.active.Node
+		return m.active.Node, m.active.NodeID
 	}
-	return nil
+	return nil, nil
 }
 
-// switchNode moves traffic to the named node: LIVE via the in-process
+// switchNode moves traffic to the node (id or name): LIVE via the in-process
 // selector when the node is an embedded member, otherwise a re-activation
 // with the stored context (xray-routed non-active nodes — v1 keeps one xray
 // instance per active xray node).
 func (m *manager) switchNode(req api.Request) api.Response {
 	if req.Node == nil || *req.Node == "" {
-		return errResp("switch_node requires a node name")
+		return errResp("switch_node requires a node")
 	}
-	target := *req.Node
+	ref := *req.Node
 
 	m.mu.Lock()
 	if m.sess == nil {
@@ -992,20 +1004,25 @@ func (m *manager) switchNode(req api.Request) api.Response {
 		return errResp("nothing is running; use activate")
 	}
 
-	// The wire addresses nodes by display name; resolve it to the member's UUID
-	// tag (the selector's internal identifier) before the live select.
-	if tag, ok := m.plan.MemberTagForName(target); ok {
+	// The ref is the member's UUID tag (the selector's identifier) or, from an
+	// older client, its display name.
+	tag, ok := ref, m.plan.IsMember(ref)
+	if !ok {
+		tag, ok = m.plan.MemberTagForName(ref)
+	}
+	if ok {
 		if err := m.sess.SelectOutbound(tag); err != nil {
 			m.mu.Unlock()
 			return errResp("live select: " + err.Error())
 		}
 		// The switch is part of the activation intent: a restore must come
-		// back to the node the user switched to.
-		m.active.Node = &target
+		// back to the node the user switched to — by its id, not its name.
+		name, _ := m.plan.DisplayNameForTag(tag)
+		m.active.Node, m.active.NodeID = &name, &tag
 		m.saveLastSessionLocked()
 		m.broadcastStateLocked()
 		m.mu.Unlock()
-		return api.Response{Status: api.StatusSwitched, Node: target}
+		return api.Response{Status: api.StatusSwitched, Node: name}
 	}
 
 	activateReq := api.Request{
@@ -1021,7 +1038,12 @@ func (m *manager) switchNode(req api.Request) api.Response {
 	if resp.Status != api.StatusActivated {
 		return resp
 	}
-	return api.Response{Status: api.StatusSwitched, Node: target}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.active != nil && m.active.Node != nil {
+		ref = *m.active.Node // reply with the display name, not the id
+	}
+	return api.Response{Status: api.StatusSwitched, Node: ref}
 }
 
 // Snapshot is the hub's first-frame source: the current session state.
@@ -1035,7 +1057,7 @@ func (m *manager) stateEventLocked() api.Event {
 	ev := api.Event{Event: api.EventState, Active: m.activeCopyLocked()}
 	if m.sess != nil {
 		ev.Entries = m.entriesLocked()
-		ev.ActiveNodeLive = m.liveNodeNameLocked()
+		ev.ActiveNodeLive, ev.ActiveNodeLiveID = m.liveNodeLocked()
 		ev.RoutingWarnings = m.routingWarnings
 	}
 	return ev

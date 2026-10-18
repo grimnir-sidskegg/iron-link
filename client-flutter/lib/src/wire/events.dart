@@ -26,6 +26,7 @@ final class StateEvent extends Event {
       {this.entries = const [],
       this.active,
       this.activeNodeLive,
+      this.activeNodeLiveId,
       this.routingWarnings = const []});
 
   StateEvent.fromJson(Map<String, Object?> json)
@@ -36,6 +37,7 @@ final class StateEvent extends Event {
             ? PersistedEntry.fromJson(json['active'] as Map<String, Object?>)
             : null,
         activeNodeLive = _strOpt(json['active_node_live']),
+        activeNodeLiveId = _strOpt(json['active_node_live_id']),
         routingWarnings = _strList(json['routing_warnings']);
 
   final List<CoreEntry> entries;
@@ -49,6 +51,9 @@ final class StateEvent extends Event {
 
   /// The running session's routing fallbacks ([RunningResponse.routingWarnings]).
   final List<String> routingWarnings;
+  /// The same live node's id (names may collide); null from a daemon
+  /// predating the field.
+  final String? activeNodeLiveId;
 
   bool get isRunning => entries.any((e) => e.isRunning);
 }

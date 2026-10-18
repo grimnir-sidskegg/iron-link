@@ -135,6 +135,9 @@ class DaemonSession extends ChangeNotifier {
   /// Routing targets the running session sent through the active node because
   /// their node or group is gone or undialable (state event / status poll).
   List<String> routingWarnings = const [];
+  /// The live node's id — what "is this row live" matches on (names may
+  /// collide); null from a daemon predating the field.
+  String? activeNodeLiveId;
 
   /// The daemon's build version, read back from the status poll (null until
   /// the first poll answers, or when the daemon predates the field).
@@ -252,7 +255,7 @@ class DaemonSession extends ChangeNotifier {
     // no tunnel, so drop the last status instead of showing it as current.
     entries = const [];
     active = null;
-    activeNodeLive = null;
+    activeNodeLive = activeNodeLiveId = null;
     routingWarnings = const [];
     if (changed) notifyListeners();
     _retry?.cancel();
@@ -277,9 +280,10 @@ class DaemonSession extends ChangeNotifier {
         // and a daemon predating the push omits it on a running event — which
         // must not wipe the value the status poll provided.
         if (!event.isRunning) {
-          activeNodeLive = null;
+          activeNodeLive = activeNodeLiveId = null;
         } else if (event.activeNodeLive != null) {
           activeNodeLive = event.activeNodeLive;
+          activeNodeLiveId = event.activeNodeLiveId;
         }
       case TrafficEvent():
         traffic.addLast(TrafficPoint(event.up, event.down));
@@ -482,11 +486,12 @@ class DaemonSession extends ChangeNotifier {
           active = reply.active ?? active;
           activeNodeLive = reply.activeNodeLive;
           routingWarnings = reply.routingWarnings;
+          activeNodeLiveId = reply.activeNodeLiveId;
           daemonVersion = reply.daemonVersion;
         case IdleResponse():
           entries = const [];
           active = null;
-          activeNodeLive = null;
+          activeNodeLive = activeNodeLiveId = null;
           routingWarnings = const [];
           daemonVersion = reply.daemonVersion;
         default:

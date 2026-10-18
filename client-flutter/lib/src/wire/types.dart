@@ -55,16 +55,22 @@ class CoreEntry {
 
 /// The activation INTENT — names + the tun flag, never paths/argv.
 class PersistedEntry {
-  const PersistedEntry({this.profile, this.node, this.routing, this.tun = false});
+  const PersistedEntry(
+      {this.profile, this.node, this.nodeId, this.routing, this.tun = false});
 
   PersistedEntry.fromJson(Map<String, Object?> json)
       : profile = _strOpt(json['profile']),
         node = _strOpt(json['node']),
+        nodeId = _strOpt(json['node_id']),
         routing = _strOpt(json['routing']),
         tun = _bool(json['tun']);
 
   final String? profile;
   final String? node;
+
+  /// The activated node's id ([node] is its display name, which may
+  /// collide); null from a daemon predating the field.
+  final String? nodeId;
   final String? routing;
   final bool tun;
 }

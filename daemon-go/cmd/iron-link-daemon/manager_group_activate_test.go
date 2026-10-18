@@ -6,6 +6,8 @@
 package main
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"ironlink/daemon/internal/api"
@@ -108,5 +110,72 @@ func TestRoutingFallbackGroupRepopulatedReconnects(t *testing.T) {
 	p.FindNodeByID("44444444-4444-4444-4444-444444444444").Group.Members = []string{"22222222-2222-2222-2222-222222222222"}
 	if rc := m.sessionReconnectLocked("main", p, "test"); rc == nil {
 		t.Error("a re-populated routing target group must reconnect")
+	}
+}
+
+// TestManagerSwitchByIDWithDuplicateNames: two groups both named "Auto" (two
+// subscriptions shipping the same label). A switch to the SECOND one by id
+// moves the live selector onto it, persists its id, and a restore comes back
+// to that same group — the name alone would resolve to the first one. A name
+// still works for an older caller.
+func TestManagerSwitchByIDWithDuplicateNames(t *testing.T) {
+	const first, second = "99999999-9999-9999-9999-999999999999", "88888888-8888-8888-8888-888888888888"
+	m := managerWithProfile(t, strings.Replace(groupFixtureProfile, "\n  ],\n  \"routing_configs\"", `,
+    {"id": "`+second+`", "sub_id": null, "profile": null,
+      "group": {"name": "Auto", "members": ["11111111-1111-1111-1111-111111111111"],
+        "probe": {"url": "https://example.com/204", "interval_sec": 180, "tolerance": 150}},
+      "preferences": {"core_override": null}}
+  ],
+  "routing_configs"`, 1))
+	s, err := m.store.LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.RestoreOnStart = true
+	if err := m.store.SaveSettings(s); err != nil {
+		t.Fatal(err)
+	}
+	// A routing targeting the second group embeds it beside the active first
+	// one, so the switch between them is a live selector move.
+	rc := `{"name":"g","rule_sets":[],"rules":[],"default_target":{"Node":"` + second + `"}}`
+	if resp := m.Handle(api.Request{Command: api.CmdUpsertRouting, RoutingConfig: json.RawMessage(rc)}); resp.Status != api.StatusOk {
+		t.Fatalf("upsert_routing: %+v", resp)
+	}
+	firstID, secondID, g := first, second, "g"
+	if resp := m.Handle(api.Request{Command: api.CmdActivate, Node: &firstID, Routing: &g}); resp.Status != api.StatusActivated {
+		t.Fatalf("activate the first Auto: %+v", resp)
+	}
+	defer m.Handle(api.Request{Command: api.CmdStop})
+
+	sw := m.Handle(api.Request{Command: api.CmdSwitchNode, Node: &secondID})
+	if sw.Status != api.StatusSwitched || sw.Node != "Auto" {
+		t.Fatalf("switch to the second Auto by id: %+v", sw)
+	}
+	if m.activations != 1 {
+		t.Errorf("the switch must be live, got %d activations", m.activations)
+	}
+	if sel, _ := m.sess.SelectedOutbound(); sel != second {
+		t.Errorf("selector = %q, want the second Auto", sel)
+	}
+	st := m.Handle(api.Request{Command: api.CmdStatus})
+	if st.Active == nil || *st.Active.Node != "Auto" || st.Active.NodeID == nil || *st.Active.NodeID != second {
+		t.Fatalf("status after the switch: %+v", st.Active)
+	}
+	if ctx, _ := m.store.LoadLastSession(); ctx == nil || ctx.NodeID == nil || *ctx.NodeID != second {
+		t.Fatalf("last session = %+v, want the second Auto's id", ctx)
+	}
+
+	m.shutdown()
+	m.restoreLastSession()
+	if m.plan.ActiveTag != second {
+		t.Errorf("restore came back to %q, want the second Auto", m.plan.ActiveTag)
+	}
+	if sel, _ := m.sess.SelectedOutbound(); sel != second {
+		t.Errorf("selector after restore = %q, want the second Auto", sel)
+	}
+
+	auto := "Auto"
+	if sw := m.Handle(api.Request{Command: api.CmdSwitchNode, Node: &auto}); sw.Status != api.StatusSwitched {
+		t.Fatalf("switch by name: %+v", sw)
 	}
 }

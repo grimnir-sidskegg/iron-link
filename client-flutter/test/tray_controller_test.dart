@@ -2,7 +2,7 @@
 /// gated while an update action or a launched installer is in flight, and on
 /// click it surfaces the window and — Windows with a staged installer — hands
 /// the shell an install request (never the apply verb directly: the consent
-/// dialog lives in the widget tree).
+/// dialog lives in the widget tree). Plus the node submenu's id matching.
 library;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -16,8 +16,8 @@ import 'package:iron_link_flutter/src/wire/wire.dart';
 /// A tray with no platform behind it: the menu model is read directly and the
 /// window show is recorded instead of touching window_manager.
 class _TestTray extends TrayController {
-  _TestTray({required super.session, required super.host})
-      : super(client: DaemonClient(endpoint: '/dev/null'));
+  _TestTray({required super.session, required super.host, DaemonClient? client})
+      : super(client: client ?? DaemonClient(endpoint: '/dev/null'));
 
   int shown = 0;
 
@@ -47,6 +47,32 @@ UpdateStatus _offer({String state = '', bool stale = false}) => UpdateStatus(
     artifact: _installer,
     downloadState: state);
 
+/// Two groups sharing the name "Auto" over one node; switches are recorded.
+class _NodesClient extends DaemonClient {
+  _NodesClient() : super(endpoint: '/dev/null');
+
+  final List<String> switched = [];
+
+  @override
+  Future<List<NodeInfo>> listNodes({String? profile}) async => const [
+        NodeInfo(id: 'n1', name: 'Tokyo'),
+        NodeInfo(id: 'g1', name: 'Auto', kind: 'group', members: ['n1']),
+        NodeInfo(id: 'g2', name: 'Auto', kind: 'group', members: ['n1']),
+      ];
+
+  @override
+  Future<String> switchNode(String node) async {
+    switched.add(node);
+    return 'Auto';
+  }
+
+  @override
+  Future<void> selectNode(String id) async {}
+
+  @override
+  Future<Response> status() async => const IdleResponse();
+}
+
 TrayMenuItem? _updateItem(_TestTray tray) {
   for (final item in tray.menu()) {
     if (item.id == 8) return item;
@@ -65,6 +91,27 @@ void main() {
     expect(_updateItem(tray), isNull);
     session.updateStatus = _offer();
     expect(_updateItem(tray)?.label, 'Update to v1.2.4…');
+  });
+
+  test('two groups sharing a name: the marker and a switch go by id',
+      () async {
+    final client = _NodesClient();
+    final session = DaemonSession(client)
+      ..entries = const [CoreEntry(role: 'proxy', state: 'running')]
+      ..active = const PersistedEntry(node: 'Auto', nodeId: 'g2')
+      ..activeNodeLive = 'Tokyo'
+      ..activeNodeLiveId = 'n1';
+    addTearDown(session.dispose);
+    final tray = _TestTray(session: session, host: HostOs.linux, client: client);
+    await tray.init();
+    await pumpEventQueue();
+
+    final rows = tray.menu().firstWhere((i) => i.id == 6).children;
+    expect(rows.map((i) => i.displayLabel).toList(),
+        ['○  Tokyo', '○  Auto  (auto)', '●  Auto  (auto)']);
+    rows[1].onClick!();
+    await pumpEventQueue();
+    expect(client.switched, ['g1']);
   });
 
   test('the entry is held while busy or while an installer runs', () {

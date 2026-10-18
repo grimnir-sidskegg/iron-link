@@ -4,10 +4,9 @@
 // outbound backed by the one xray instance compiled for it.
 //
 // Members are tagged with the stable node UUID (NamedNode.ID) — NOT the display
-// name, which may collide. The wire keeps addressing nodes by display name; the
-// manager resolves that to the UUID tag (MemberTagForName) on the way in and
-// maps the selector's live tag back to a display name (DisplayNameForTag) on
-// the way out, so the client-facing contract is unchanged.
+// name, which may collide. The wire addresses nodes by that id (a display name
+// still resolves, MemberTagForName, for older callers), and the manager maps the
+// selector's live tag back to a display name (DisplayNameForTag) for display.
 
 package engine
 
@@ -127,8 +126,9 @@ func (p *SessionPlan) IsMember(tag string) bool {
 }
 
 // MemberTagForName resolves a client-facing display name to the embedded
-// member's UUID tag (the wire addresses nodes by display name). The first
-// member with that name wins when names collide; ok=false when none matches.
+// member's UUID tag (the fallback for a caller addressing by name, not id). The
+// first member with that name wins when names collide; ok=false when none
+// matches.
 func (p *SessionPlan) MemberTagForName(name string) (tag string, ok bool) {
 	for i := range p.Natives {
 		if p.Natives[i].Name == name {

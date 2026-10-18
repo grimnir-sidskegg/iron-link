@@ -270,6 +270,17 @@ func (p *Profile) FindNodeByName(name string) *Node {
 	return nil
 }
 
+// FindNode resolves a wire node ref: the node with that id, else the one with
+// that display name (FindNodeByName), else nil. Ids are unique, names may
+// collide, so clients address nodes by id; the name keeps older callers
+// working.
+func (p *Profile) FindNode(ref string) *Node {
+	if n := p.FindNodeByID(ref); n != nil {
+		return n
+	}
+	return p.FindNodeByName(ref)
+}
+
 // FindNodeByID returns the node with the given id, or nil.
 func (p *Profile) FindNodeByID(id string) *Node {
 	for i := range p.Nodes {

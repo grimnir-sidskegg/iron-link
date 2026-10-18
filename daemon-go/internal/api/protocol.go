@@ -117,15 +117,15 @@ type Request struct {
 	// an existing id replaces that config in place)
 	RoutingConfig json.RawMessage `json:"routing_config,omitempty"`
 
-	// activate (optional), switch_node / select_node / remove_node /
-	// set_node_prefs / get_group (required): the node NAME (or id for the store
-	// verbs; get_group's ref must resolve to a group)
+	// activate / diagnose (optional), switch_node / select_node / remove_node /
+	// set_node_prefs / get_node / get_group (required): the node id, or its
+	// display name (an id match wins; get_group's ref must resolve to a group)
 	Node *string `json:"node,omitempty"`
 
 	// stop (optional): which role to stop; nil = stop all
 	Role *CoreRole `json:"role,omitempty"`
 
-	// test_latency (optional): node NAMES; nil = all current selector members
+	// test_latency (optional): node ids or names; nil = all current selector members
 	Nodes *[]string `json:"nodes,omitempty"`
 
 	// add_node / add_subscription: the share link / subscription URL
@@ -437,10 +437,11 @@ type Response struct {
 
 	// running / activated
 	Entries []CoreEntry `json:"entries,omitempty"`
-	// running: the activation context + the live-selected node NAME (read from
-	// the in-process selector, not a Clash API — GO_DAEMON_PLAN.md §6)
-	Active         *PersistedEntry `json:"active,omitempty"`
-	ActiveNodeLive *string         `json:"active_node_live,omitempty"`
+	// running: the activation context + the live-selected node NAME and id
+	// (read from the in-process selector, not a Clash API — GO_DAEMON_PLAN.md §6)
+	Active           *PersistedEntry `json:"active,omitempty"`
+	ActiveNodeLive   *string         `json:"active_node_live,omitempty"`
+	ActiveNodeLiveID *string         `json:"active_node_live_id,omitempty"`
 	// running: the routing targets that could not be resolved (a node or
 	// group gone or undialable) and fell back to the active node, one line
 	// each. The same list rides the state event.
@@ -533,8 +534,10 @@ type Event struct {
 	Active  *PersistedEntry `json:"active,omitempty"`
 	// state: the in-process live node NAME (an urltest's current member pick
 	// when an Auto group is active) — pushed so an auto-switch reaches clients
-	// without waiting for the status poll. Absent on an idle state.
-	ActiveNodeLive *string `json:"active_node_live,omitempty"`
+	// without waiting for the status poll. Absent on an idle state. The ID is
+	// the same node's store id (names may collide).
+	ActiveNodeLive   *string `json:"active_node_live,omitempty"`
+	ActiveNodeLiveID *string `json:"active_node_live_id,omitempty"`
 	// state: the running session's routing fallbacks (Response.RoutingWarnings).
 	RoutingWarnings []string `json:"routing_warnings,omitempty"`
 

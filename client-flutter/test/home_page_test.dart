@@ -63,9 +63,10 @@ class _FakeClient extends DaemonClient {
     return [for (final n in nodes ?? const <String>[]) LatencyResult(node: n)];
   }
 
-  /// The live node `status()` reports; a `switchNode` moves it (the daemon's
-  /// synchronous selector swap, faked).
+  /// The live node `status()` reports (name + id); a `switchNode` by id
+  /// moves it (the daemon's synchronous selector swap, faked).
   String? liveNode;
+  String? liveNodeId;
 
   @override
   Future<List<NodeInfo>> listNodes({String? profile}) async => nodes;
@@ -81,8 +82,9 @@ class _FakeClient extends DaemonClient {
   @override
   Future<String> switchNode(String node) async {
     switched.add(node);
-    liveNode = node; // the selector moved live to it
-    return node;
+    liveNodeId = node; // the selector moved live to it
+    liveNode = nodes.firstWhere((n) => n.id == node).name;
+    return liveNode!;
   }
 
   @override
@@ -92,7 +94,8 @@ class _FakeClient extends DaemonClient {
             CoreEntry(role: 'tun', state: 'running'),
             CoreEntry(role: 'proxy', state: 'running'),
           ],
-          activeNodeLive: liveNode)
+          activeNodeLive: liveNode,
+          activeNodeLiveId: liveNodeId)
       : const IdleResponse();
 }
 
@@ -212,7 +215,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // get_node was fetched by name, and the inspector rendered its fields.
-    expect(client.gotNode, ['Tokyo']);
+    expect(client.gotNode, ['n1']);
     expect(find.text('address'), findsOneWidget);
     expect(find.text('198.51.100.7'), findsOneWidget);
     expect(find.text('protocol'), findsOneWidget);
@@ -226,8 +229,8 @@ void main() {
     await tester.tap(find.text('Test all'));
     await tester.pumpAndSettle();
 
-    expect(client.probed, containsAll(<String>['Tokyo', 'Osaka']));
-    expect(client.probed, isNot(contains('Auto')));
+    expect(client.probed, containsAll(<String>['n1', 'n2']));
+    expect(client.probed, isNot(contains('g1')));
   });
 
   testWidgets('an active running group shows the live member badge',
@@ -452,11 +455,46 @@ void main() {
 
     // ONE atomic click: live switch + set default, no confirm dialog.
     expect(find.byType(AlertDialog), findsNothing);
-    expect(client.switched, ['Tokyo']);
+    expect(client.switched, ['n1']);
     expect(client.selected, ['n1']);
     // The status re-read landed the live-node pulse on the new live node.
     expect(session.activeNodeLive, 'Tokyo');
     expect(find.byKey(const ValueKey('live-node-mark')), findsOneWidget);
+  });
+
+  testWidgets('two nodes sharing a name: the live mark and a switch go by id',
+      (tester) async {
+    const tokyo2 = NodeInfo(id: 'n3', name: 'Tokyo');
+    final client = _FakeClient(nodes: [tokyo, tokyo2], running: true)
+      ..liveNode = 'Tokyo'
+      ..liveNodeId = 'n3';
+    final session = DaemonSession(client);
+    session.entries = const [
+      CoreEntry(role: 'tun', state: 'running'),
+      CoreEntry(role: 'proxy', state: 'running'),
+    ];
+    session.activeNodeLive = 'Tokyo';
+    session.activeNodeLiveId = 'n3';
+    addTearDown(session.dispose);
+
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+        MaterialApp(home: HomePage(client: client, session: session)));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+
+    // Only the second Tokyo is live; the first is a switch target.
+    expect(find.byTooltip('Live node'), findsOneWidget);
+    await tester.tap(find.byTooltip('Switch traffic here'));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(client.switched, ['n1']);
+    expect(session.activeNodeLiveId, 'n1');
+    expect(find.byTooltip('Live node'), findsOneWidget);
   });
 
   testWidgets("a hung node does not block a fast node's latency row",
@@ -503,8 +541,8 @@ class _LatencyFake extends DaemonClient {
 
   @override
   Future<List<LatencyResult>> testLatency([List<String>? nodes]) {
-    final name = nodes!.single;
-    if (name == 'Osaka') return osakaHang.future; // hung — never resolves
-    return Future.value([LatencyResult(node: name, latencyMs: 42)]);
+    final id = nodes!.single;
+    if (id == 'n2') return osakaHang.future; // Osaka hung — never resolves
+    return Future.value([LatencyResult(node: 'Tokyo', latencyMs: 42)]);
   }
 }

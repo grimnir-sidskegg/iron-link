@@ -189,12 +189,9 @@ func resolveGroupMemberIDs(p *store.Profile, g *store.Node) []string {
 	return ids
 }
 
-// resolveNode finds a node by display name OR id.
+// resolveNode finds a node by id OR display name (store.Profile.FindNode).
 func resolveNode(p *store.Profile, ref string) (*store.Node, error) {
-	if n := p.FindNodeByName(ref); n != nil {
-		return n, nil
-	}
-	if n := p.FindNodeByID(ref); n != nil {
+	if n := p.FindNode(ref); n != nil {
 		return n, nil
 	}
 	return nil, fmt.Errorf("node %q not found", ref)
