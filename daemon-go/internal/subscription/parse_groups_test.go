@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"ironlink/daemon/internal/store"
@@ -284,9 +285,11 @@ func TestDurationSeconds(t *testing.T) {
 // refresh keeps the group's own UUID and its members stable (matched by name /
 // prefsKey); and the reported Count is the DIALABLE node count, excluding groups.
 func TestRefreshMaterializesAndReconcilesGroups(t *testing.T) {
-	body := readFixture(t, "xray.json")
+	fixture := readFixture(t, "xray.json")
+	var body atomic.Pointer[string]
+	body.Store(&fixture)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, body)
+		fmt.Fprint(w, *body.Load())
 	}))
 	defer srv.Close()
 
@@ -349,6 +352,21 @@ func TestRefreshMaterializesAndReconcilesGroups(t *testing.T) {
 	}
 	if reported != dialable {
 		t.Errorf("Result.Count = %d, want the dialable node count %d (groups excluded)", reported, dialable)
+	}
+
+	// The group drops out for one refresh (none of its members served) and
+	// comes back: it must return under its old UUID, so routing rules that
+	// target it resolve again.
+	other := "vless://88f2c0dc-a8e3-49f4-89b9-b3b54f1cad3a@198.51.100.77:443?security=none&type=tcp#other"
+	body.Store(&other)
+	Refresh(context.Background(), p, "", "")
+	if findAuto() != nil {
+		t.Fatal("the Auto group must drop out while none of its members is served")
+	}
+	body.Store(&fixture)
+	Refresh(context.Background(), p, "", "")
+	if g := findAuto(); g == nil || g.ID != groupID {
+		t.Errorf("a returning group must keep its UUID %s, got %v", groupID, g)
 	}
 }
 

@@ -73,13 +73,14 @@ type SessionPlan struct {
 	// Tunables are the engine-relevant user settings; nil means
 	// DefaultTunables() (the pre-settings hardcoded shapes).
 	Tunables *Tunables
-	// Group, when set, is the ACTIVE group lowered to a urltest selector member
-	// (fastest-by-ping over its members). Only the active group is lowered — idle
-	// groups would multiply probe sweeps for no benefit.
-	Group *GroupPlan
+	// Groups are the group nodes lowered to urltest selector members
+	// (fastest-by-ping over their members): the ACTIVE group first, when the
+	// active node is one, then every group the routing targets. Other groups are
+	// not lowered — each urltest probes its members on start.
+	Groups []GroupPlan
 }
 
-// GroupPlan lowers the active group node to a sing-box urltest outbound. ID is
+// GroupPlan lowers a group node to a sing-box urltest outbound. ID is
 // the group node UUID and IS the urltest tag (so the selector can default to it
 // and the wire addresses it by name like any node). Members are node UUIDs,
 // already filtered to embedded selector members. The probe fields are zero when
@@ -96,30 +97,20 @@ type GroupPlan struct {
 
 // memberTags lists the selector members by their UUID tag: every native node,
 // then every xray node (each an xray-reality outbound of the one instance), then
-// the active group's urltest (itself a selector member, so the selector can
-// default to it and a live switch onto/off it works).
+// the groups' urltests (each a selector member, so the selector can default to
+// one and a live switch onto/off it works).
 func (p *SessionPlan) memberTags() []string {
-	n := len(p.Natives) + len(p.XrayNodes)
-	if p.Group != nil {
-		n++
-	}
-	tags := make([]string, 0, n)
-	for _, m := range p.Natives {
-		tags = append(tags, m.ID)
-	}
-	for _, m := range p.XrayNodes {
-		tags = append(tags, m.ID)
-	}
-	if p.Group != nil {
-		tags = append(tags, p.Group.ID)
+	tags := p.nodeTags()
+	for i := range p.Groups {
+		tags = append(tags, p.Groups[i].ID)
 	}
 	return tags
 }
 
-// nodeTags lists only the DIALABLE members (natives + xray), excluding the group
-// — the set a group's urltest members must be drawn from.
+// nodeTags lists only the DIALABLE members (natives + xray), excluding the
+// groups — the set a group's urltest members must be drawn from.
 func (p *SessionPlan) nodeTags() []string {
-	tags := make([]string, 0, len(p.Natives)+len(p.XrayNodes))
+	tags := make([]string, 0, len(p.Natives)+len(p.XrayNodes)+len(p.Groups))
 	for _, m := range p.Natives {
 		tags = append(tags, m.ID)
 	}
@@ -149,10 +140,12 @@ func (p *SessionPlan) MemberTagForName(name string) (tag string, ok bool) {
 			return p.XrayNodes[i].ID, true
 		}
 	}
-	// The group is checked LAST so a dialable node wins a name tie (consistent
+	// Groups are checked LAST so a dialable node wins a name tie (consistent
 	// with store.FindNodeByName's node-beats-group rule).
-	if p.Group != nil && p.Group.Name == name {
-		return p.Group.ID, true
+	for i := range p.Groups {
+		if p.Groups[i].Name == name {
+			return p.Groups[i].ID, true
+		}
 	}
 	return "", false
 }
@@ -171,8 +164,10 @@ func (p *SessionPlan) DisplayNameForTag(tag string) (name string, ok bool) {
 			return p.XrayNodes[i].Name, true
 		}
 	}
-	if p.Group != nil && p.Group.ID == tag {
-		return p.Group.Name, true
+	for i := range p.Groups {
+		if p.Groups[i].ID == tag {
+			return p.Groups[i].Name, true
+		}
 	}
 	return "", false
 }
@@ -194,14 +189,14 @@ func (p *SessionPlan) validate() error {
 	}
 	// A group's urltest members must be embedded node members — sing-box hard
 	// fails Start on a urltest naming a tag it cannot resolve.
-	if p.Group != nil {
-		if len(p.Group.Members) == 0 {
-			return fmt.Errorf("group %q has no members", p.Group.Name)
+	nodes := p.nodeTags()
+	for _, g := range p.Groups {
+		if len(g.Members) == 0 {
+			return fmt.Errorf("group %q has no members", g.Name)
 		}
-		nodes := p.nodeTags()
-		for _, m := range p.Group.Members {
+		for _, m := range g.Members {
 			if !slices.Contains(nodes, m) {
-				return fmt.Errorf("group %q member %q is not an embedded node", p.Group.Name, m)
+				return fmt.Errorf("group %q member %q is not an embedded node", g.Name, m)
 			}
 		}
 	}
@@ -239,28 +234,28 @@ func (p *SessionPlan) planOutbounds() ([]any, error) {
 			"type": OutboundType, "tag": p.XrayNodes[i].ID, "node_id": p.XrayNodes[i].ID,
 		})
 	}
-	if p.Group != nil {
+	for _, g := range p.Groups {
 		urltest := map[string]any{
 			"type":      "urltest",
-			"tag":       p.Group.ID,
-			"outbounds": p.Group.Members,
+			"tag":       g.ID,
+			"outbounds": g.Members,
 			// A live urltest re-pick must move traffic, like the selector switch.
 			"interrupt_exist_connections": true,
 		}
-		if p.Group.ProbeURL != "" {
-			urltest["url"] = p.Group.ProbeURL
+		if g.ProbeURL != "" {
+			urltest["url"] = g.ProbeURL
 		}
-		if p.Group.Interval > 0 {
-			urltest["interval"] = p.Group.Interval.String()
+		if g.Interval > 0 {
+			urltest["interval"] = g.Interval.String()
 			// NewURLTestGroup requires interval <= idle_timeout (default 30m); a
 			// longer provider interval must raise idle_timeout to match or Start
 			// fails.
-			if p.Group.Interval > 30*time.Minute {
-				urltest["idle_timeout"] = p.Group.Interval.String()
+			if g.Interval > 30*time.Minute {
+				urltest["idle_timeout"] = g.Interval.String()
 			}
 		}
-		if p.Group.Tolerance > 0 {
-			urltest["tolerance"] = p.Group.Tolerance
+		if g.Tolerance > 0 {
+			urltest["tolerance"] = g.Tolerance
 		}
 		outbounds = append(outbounds, urltest)
 	}

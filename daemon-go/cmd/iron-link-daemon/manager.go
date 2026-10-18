@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -318,11 +319,10 @@ func (m *manager) prepareActivation(req api.Request) (activation, error) {
 		routingCfg = prof.ActiveRouting()
 	}
 
-	plan, err := buildPlan(prof, node)
+	plan, err := buildPlan(prof, node, routingCfg)
 	if err != nil {
 		return prep, err
 	}
-	plan.Routing = routingCfg
 	// Rule-set cache + selector persistence live next to the profiles (the
 	// platform log writer forces the cache-file service; an explicit path
 	// keeps it out of the daemon's cwd).
@@ -510,8 +510,9 @@ func (m *manager) saveLastSessionLocked() {
 // node that no core can dial — or that xray cannot actually build an outbound
 // for — is skipped with a log, not fatal (one broken node must not brick every
 // activation); the ACTIVE node failing either check fails the activation.
-func buildPlan(prof *store.Profile, active *store.Node) (engine.SessionPlan, error) {
-	var plan engine.SessionPlan
+// Groups lower to urltests: the active one, plus every group rc targets.
+func buildPlan(prof *store.Profile, active *store.Node, rc *routing.Config) (engine.SessionPlan, error) {
+	plan := engine.SessionPlan{Routing: rc}
 	// Selector member tags are the stable node UUIDs (DisplayName may collide),
 	// so the active default is addressed by id too.
 	plan.ActiveTag = active.ID
@@ -519,8 +520,8 @@ func buildPlan(prof *store.Profile, active *store.Node) (engine.SessionPlan, err
 	for i := range prof.Nodes {
 		n := &prof.Nodes[i]
 		if n.IsGroup() {
-			// A group is not a dialable member; the ACTIVE group is lowered to a
-			// urltest below, once every dialable member is known.
+			// A group is not a dialable member; the groups in play are lowered to
+			// urltests below, once every dialable member is known.
 			continue
 		}
 		isActive := n.ID == active.ID
@@ -557,29 +558,58 @@ func buildPlan(prof *store.Profile, active *store.Node) (engine.SessionPlan, err
 		}
 	}
 
-	// The active node is a group: lower it to a urltest over its members that
-	// actually embedded as dialable selector members (a churned / undialable
-	// member is dropped; a group with none left cannot be activated). plan.Group
-	// is still nil here, so IsMember tests only the dialable members.
+	// Lower the active group, then every group the routing targets (a rule
+	// pointing at an unlowered group would resolve to nothing), to a urltest
+	// over its members that actually embedded as dialable selector members (a
+	// churned / undialable member is dropped; a group with none left fails the
+	// activation). plan.Groups stays empty until the end, so IsMember tests only
+	// the dialable members.
+	var groups []*store.Node
 	if active.IsGroup() {
+		groups = append(groups, active)
+	}
+	if rc != nil {
+		targets := []routing.RuleTarget{rc.DefaultTarget}
+		for i := range rc.Rules {
+			targets = append(targets, rc.Rules[i].Target)
+		}
+		for _, t := range targets {
+			if t.Kind != routing.TargetNode {
+				continue
+			}
+			g := prof.FindNodeByID(t.Node)
+			if g == nil {
+				return plan, fmt.Errorf("routing %q targets node %s, which no longer exists in the profile", rc.Name, t.Node)
+			}
+			if g.IsGroup() && !slices.ContainsFunc(groups, func(n *store.Node) bool { return n.ID == g.ID }) {
+				groups = append(groups, g)
+			}
+		}
+	}
+	lowered := make([]engine.GroupPlan, 0, len(groups))
+	for _, g := range groups {
 		var members []string
-		for _, id := range resolveGroupMemberIDs(prof, active) {
+		for _, id := range resolveGroupMemberIDs(prof, g) {
 			if plan.IsMember(id) {
 				members = append(members, id)
 			}
 		}
+		if len(members) == 0 && g.ID == active.ID {
+			return plan, fmt.Errorf("group %q has no dialable members to select among", g.DisplayName())
+		}
 		if len(members) == 0 {
-			return plan, fmt.Errorf("group %q has no dialable members to select among", active.DisplayName())
+			return plan, fmt.Errorf("routing %q targets group %q, which has no dialable members", rc.Name, g.DisplayName())
 		}
-		plan.Group = &engine.GroupPlan{
-			ID:        active.ID,
-			Name:      active.DisplayName(),
+		lowered = append(lowered, engine.GroupPlan{
+			ID:        g.ID,
+			Name:      g.DisplayName(),
 			Members:   members,
-			ProbeURL:  active.Group.Probe.URL,
-			Interval:  time.Duration(active.Group.Probe.IntervalSec) * time.Second,
-			Tolerance: active.Group.Probe.Tolerance,
-		}
+			ProbeURL:  g.Group.Probe.URL,
+			Interval:  time.Duration(g.Group.Probe.IntervalSec) * time.Second,
+			Tolerance: g.Group.Probe.Tolerance,
+		})
 	}
+	plan.Groups = lowered
 	return plan, nil
 }
 

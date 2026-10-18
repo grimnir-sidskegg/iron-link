@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"ironlink/daemon/internal/api"
+	"ironlink/daemon/internal/engine"
 	"ironlink/daemon/internal/ipc"
+	"ironlink/daemon/internal/routing"
 	"ironlink/daemon/internal/store"
 )
 
@@ -174,18 +176,18 @@ func TestGroupVerbsDoNotPanic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gplan, err := buildPlan(prof, prof.FindNodeByName("Auto"))
+	gplan, err := buildPlan(prof, prof.FindNodeByName("Auto"), nil)
 	if err != nil {
 		t.Fatalf("buildPlan for the group must succeed (lowered): %v", err)
 	}
-	if gplan.Group == nil || gplan.Group.Name != "Auto" || len(gplan.Group.Members) != 1 {
-		t.Errorf("group not lowered to a urltest plan: %+v", gplan.Group)
+	if len(gplan.Groups) != 1 || gplan.Groups[0].Name != "Auto" || len(gplan.Groups[0].Members) != 1 {
+		t.Errorf("group not lowered to a urltest plan: %+v", gplan.Groups)
 	}
-	plan, err := buildPlan(prof, prof.FindNodeByName("node-x"))
+	plan, err := buildPlan(prof, prof.FindNodeByName("node-x"), nil)
 	if err != nil {
 		t.Fatalf("buildPlan(node-x): %v", err)
 	}
-	if len(plan.Natives)+len(plan.XrayNodes) != 1 || plan.Group != nil {
+	if len(plan.Natives)+len(plan.XrayNodes) != 1 || len(plan.Groups) != 0 {
 		t.Errorf("plan must embed only the dialable node, not the group: %+v", plan)
 	}
 }
@@ -303,20 +305,61 @@ func TestGetNodeReturnsConfig(t *testing.T) {
 	}
 }
 
-// TestUpsertRoutingRejectsGroupTarget: a routing rule cannot target a group —
-// the group's urltest exists only while it is the active node, so such a rule
-// would fail an unrelated activation. It is rejected at authoring time.
-func TestUpsertRoutingRejectsGroupTarget(t *testing.T) {
+// TestRoutingTargetsGroup: a routing rule may target a group that is not the
+// active node. upsert_routing accepts it, and the activation lowers the group
+// to its own urltest so the rule resolves to the group's tag.
+func TestRoutingTargetsGroup(t *testing.T) {
 	m := groupFixtureManager(t)
 
 	groupTarget := `{"name":"g","rule_sets":[],"rules":[{"target":{"Node":"99999999-9999-9999-9999-999999999999"},"domain_keyword":["x.com"]}],"default_target":"Direct"}`
-	resp := m.Handle(api.Request{Command: api.CmdUpsertRouting, RoutingConfig: json.RawMessage(groupTarget)})
-	if resp.Status != api.StatusError || !strings.Contains(resp.Message, "group") {
-		t.Errorf("a rule targeting a group must be rejected: %+v", resp)
+	if resp := m.Handle(api.Request{Command: api.CmdUpsertRouting, RoutingConfig: json.RawMessage(groupTarget)}); resp.Status != api.StatusOk {
+		t.Fatalf("a rule targeting a group must be accepted: %+v", resp)
+	}
+	prof, err := m.store.LoadProfile("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := prof.FindRouting("g")
+	plan, err := buildPlan(prof, prof.FindNodeByName("node-x"), rc)
+	if err != nil {
+		t.Fatalf("buildPlan(node-x) with a group target: %v", err)
+	}
+	if plan.ActiveTag != "11111111-1111-1111-1111-111111111111" || len(plan.Groups) != 1 || plan.Groups[0].ID != "99999999-9999-9999-9999-999999999999" {
+		t.Fatalf("the referenced group must be lowered beside the active node: %+v", plan)
+	}
+	sb, _, err := engine.PlanSocksConfigs(plan, "127.0.0.1", 1080)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if !strings.Contains(string(sb), `"outbound":"99999999-9999-9999-9999-999999999999"`) {
+		t.Errorf("the rule must resolve to the group tag:\n%s", sb)
 	}
 
-	nodeTarget := `{"name":"ok","rule_sets":[],"rules":[{"target":{"Node":"11111111-1111-1111-1111-111111111111"},"domain_keyword":["x.com"]}],"default_target":"Direct"}`
-	if resp := m.Handle(api.Request{Command: api.CmdUpsertRouting, RoutingConfig: json.RawMessage(nodeTarget)}); resp.Status != api.StatusOk {
-		t.Errorf("a rule targeting a dialable node must be accepted: %+v", resp)
+	// The active group plus another referenced one: active first, deduped.
+	prof.Nodes = append(prof.Nodes, store.Node{ID: "77777777-7777-7777-7777-777777777777",
+		Group: &store.GroupSpec{Name: "Second", Members: []string{"11111111-1111-1111-1111-111111111111"}}})
+	rc.DefaultTarget = routing.RuleTarget{Kind: routing.TargetNode, Node: "77777777-7777-7777-7777-777777777777"}
+	plan, err = buildPlan(prof, prof.FindNodeByName("Auto"), rc)
+	if err != nil {
+		t.Fatalf("buildPlan(Auto) with another group target: %v", err)
+	}
+	if len(plan.Groups) != 2 || plan.Groups[0].Name != "Auto" || plan.Groups[1].Name != "Second" {
+		t.Errorf("groups = %+v, want [Auto Second]", plan.Groups)
+	}
+
+	// A referenced group with no dialable member fails the activation by name.
+	prof.Nodes = append(prof.Nodes, store.Node{ID: "66666666-6666-6666-6666-666666666666",
+		Group: &store.GroupSpec{Name: "Empty", Members: []string{"ghost"}}})
+	rc.DefaultTarget = routing.RuleTarget{Kind: routing.TargetNode, Node: "66666666-6666-6666-6666-666666666666"}
+	if _, err := buildPlan(prof, prof.FindNodeByName("node-x"), rc); err == nil || !strings.Contains(err.Error(), `group "Empty"`) {
+		t.Errorf("an empty referenced group must fail by name: %v", err)
+	}
+
+	// A target whose node or group is gone from the profile fails by routing
+	// name and id, not as an opaque "not embedded".
+	rc.DefaultTarget = routing.RuleTarget{Kind: routing.TargetNode, Node: "55555555-5555-5555-5555-555555555555"}
+	_, err = buildPlan(prof, prof.FindNodeByName("node-x"), rc)
+	if err == nil || !strings.Contains(err.Error(), `routing "g"`) || !strings.Contains(err.Error(), "55555555-5555-5555-5555-555555555555, which no longer exists") {
+		t.Errorf("a dangling target must fail readably: %v", err)
 	}
 }

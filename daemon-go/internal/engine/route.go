@@ -47,8 +47,10 @@ func (p *SessionPlan) resolveTarget(t routing.RuleTarget) (string, error) {
 				return p.XrayNodes[i].ID, nil
 			}
 		}
-		if p.Group != nil && p.Group.ID == t.Node {
-			return p.Group.ID, nil
+		for i := range p.Groups {
+			if p.Groups[i].ID == t.Node {
+				return p.Groups[i].ID, nil
+			}
 		}
 		return "", fmt.Errorf("routing target node %s is not embedded in this session (only selector members can be rule targets)", t.Node)
 	default:

@@ -608,30 +608,34 @@ func TestPlanMembersEqual(t *testing.T) {
 		t.Error("a member moving between the native and xray sets must count")
 	}
 
-	grouped := base
-	grouped.Group = &engine.GroupPlan{ID: "g", Name: "Auto", Members: []string{"id-a", "id-b"}}
-	sameGroup := base
-	sameGroup.Group = &engine.GroupPlan{ID: "g", Name: "Auto", Members: []string{"id-b", "id-a"}}
-	if !planMembersEqual(grouped, sameGroup) {
+	withGroups := func(groups ...engine.GroupPlan) engine.SessionPlan {
+		p := base
+		p.Groups = groups
+		return p
+	}
+	g := engine.GroupPlan{ID: "g", Name: "Auto", Members: []string{"id-a", "id-b"}}
+	g2 := engine.GroupPlan{ID: "g2", Name: "Fallback", Members: []string{"id-b"}}
+	grouped := withGroups(g)
+	if !planMembersEqual(grouped, withGroups(engine.GroupPlan{ID: "g", Name: "Auto", Members: []string{"id-b", "id-a"}})) {
 		t.Error("the same group membership in another order must be equal")
 	}
-	fewer := base
-	fewer.Group = &engine.GroupPlan{ID: "g", Name: "Auto", Members: []string{"id-a"}}
-	if planMembersEqual(grouped, fewer) {
+	if planMembersEqual(grouped, withGroups(engine.GroupPlan{ID: "g", Name: "Auto", Members: []string{"id-a"}})) {
 		t.Error("a group member removed must count")
 	}
-	more := base
-	more.Group = &engine.GroupPlan{ID: "g", Name: "Auto", Members: []string{"id-a", "id-b", "id-c"}}
-	if planMembersEqual(grouped, more) {
+	if planMembersEqual(grouped, withGroups(engine.GroupPlan{ID: "g", Name: "Auto", Members: []string{"id-a", "id-b", "id-c"}})) {
 		t.Error("a group member added must count")
 	}
-	otherGroup := base
-	otherGroup.Group = &engine.GroupPlan{ID: "g2", Name: "Auto", Members: []string{"id-a", "id-b"}}
-	if planMembersEqual(grouped, otherGroup) {
+	if planMembersEqual(grouped, withGroups(engine.GroupPlan{ID: "g3", Name: "Auto", Members: []string{"id-a", "id-b"}})) {
 		t.Error("a different group id must count")
 	}
 	if planMembersEqual(grouped, base) || planMembersEqual(base, grouped) {
 		t.Error("a group present on one side only must count")
+	}
+	if !planMembersEqual(withGroups(g, g2), withGroups(g2, g)) {
+		t.Error("group order must not count")
+	}
+	if planMembersEqual(grouped, withGroups(g, g2)) {
+		t.Error("an added routing-referenced group must count")
 	}
 }
 
@@ -826,6 +830,50 @@ func TestCorePinReconnectsRunningSession(t *testing.T) {
 	}
 	if m.activations != 2 {
 		t.Errorf("a pin to the core already in use must not re-activate, activations = %d", m.activations)
+	}
+}
+
+// TestSubscriptionRefreshKeepsRoutedGroupSession: when the session's routing
+// targets a group that is not the active node, the refresh compares against a
+// plan built with that same routing — an unchanged body keeps the session (the
+// referenced group's urltest is on both sides), it does not reconnect.
+func TestSubscriptionRefreshKeepsRoutedGroupSession(t *testing.T) {
+	prov := newSubProvider(t, subLinkA+"\n"+subLinkB)
+	m := subLoopManager(t)
+	if add := m.Handle(api.Request{Command: api.CmdAddSub, URL: strPtr(prov.srv.URL), Name: strPtr("prov")}); add.Status != api.StatusRefreshed {
+		t.Fatalf("add_subscription: %+v", add)
+	}
+	editSubscriptions(t, m, func(p *store.Profile) {
+		subID := p.Subscriptions[0].ID
+		p.Nodes = append(p.Nodes, store.Node{ID: "77777777-7777-7777-7777-777777777777",
+			Group: &store.GroupSpec{Name: "Auto", AllOfSub: &subID}})
+		id, err := p.AddRouting(routing.Config{Name: "via-auto",
+			DefaultTarget: routing.RuleTarget{Kind: routing.TargetNode, Node: "77777777-7777-7777-7777-777777777777"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := p.SetActiveRouting(id); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if resp := m.Handle(api.Request{Command: api.CmdActivate, Node: strPtr("sub-a")}); resp.Status != api.StatusActivated {
+		t.Fatalf("activate: %+v", resp)
+	}
+	defer m.Handle(api.Request{Command: api.CmdStop})
+	m.mu.Lock()
+	groups := len(m.plan.Groups)
+	m.mu.Unlock()
+	if groups != 1 {
+		t.Fatalf("the routed group must be lowered beside sub-a, groups = %d", groups)
+	}
+
+	editSubscriptions(t, m, func(p *store.Profile) { p.Subscriptions[0].LastUpdated = time.Now().UTC().Add(-24 * time.Hour) })
+	m.sweepSubscriptions(context.Background())
+	if n := prov.hits.Load(); n != 2 {
+		t.Fatalf("hits = %d, want 2", n)
+	}
+	if m.activations != 1 {
+		t.Errorf("an unchanged body must not re-activate a routed-group session, activations = %d", m.activations)
 	}
 }
 

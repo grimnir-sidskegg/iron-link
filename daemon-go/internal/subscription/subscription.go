@@ -17,6 +17,7 @@ import (
 	"ironlink/daemon/internal/api"
 	"ironlink/daemon/internal/proxy"
 	"ironlink/daemon/internal/store"
+	"ironlink/daemon/internal/uuid"
 )
 
 // fetchTimeout bounds one subscription fetch. DefaultUserAgent
@@ -286,8 +287,11 @@ func Refresh(ctx context.Context, p *store.Profile, only, ua string) []Result {
 // each member key is resolved to the UUID of the (already reconciled) dialable
 // node that carries it, so a group references its members by their stable ids.
 // A member key that resolves to nothing is dropped; a group left with no
-// members is not stored. The group node's own UUID is minted fresh here and
-// then reconciled by the caller (matched by name) so it survives a refresh.
+// members is not stored. The group node's own UUID is derived from (subscription,
+// group name), so a group that drops out for a refresh (every member gone) and
+// later returns gets its old id back and routing rules targeting it resolve
+// again; the caller's reconcile (matched by name) keeps an id minted before
+// this derivation.
 func materializeGroups(groups []GroupOut, nodes []store.Node, subID string) []store.Node {
 	if len(groups) == 0 {
 		return nil
@@ -307,11 +311,11 @@ func materializeGroups(groups []GroupOut, nodes []store.Node, subID string) []st
 		if len(members) == 0 {
 			continue
 		}
-		out = append(out, store.NewGroupNode(store.GroupSpec{
-			Name:    g.Name,
-			Members: members,
-			Probe:   g.Probe,
-		}, &subID))
+		out = append(out, store.Node{
+			ID:    uuid.FromName("group:" + subID + ":" + g.Name),
+			SubID: &subID,
+			Group: &store.GroupSpec{Name: g.Name, Members: members, Probe: g.Probe},
+		})
 	}
 	return out
 }

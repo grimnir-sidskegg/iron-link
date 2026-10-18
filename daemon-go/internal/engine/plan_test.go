@@ -134,16 +134,17 @@ func TestPlanTwoXrayMembersLiveSelect(t *testing.T) {
 
 // TestPlanGroupUrltestLiveSelect: an active group lowers to a urltest over its
 // members, becomes the selector default, and the session live-switches onto a
-// concrete member and back. LiveOutbound descends into the urltest.
+// concrete member and back. LiveOutbound descends into the urltest. A second
+// (routing-referenced) group runs beside it as its own urltest.
 func TestPlanGroupUrltestLiveSelect(t *testing.T) {
 	p := twoNativePlan() // node-a, node-b
-	p.Group = &GroupPlan{
+	p.Groups = []GroupPlan{{
 		ID:       "auto-group",
 		Name:     "Auto",
 		Members:  []string{"node-a", "node-b"},
 		ProbeURL: "https://example.com/generate_204",
 		Interval: 3 * time.Minute,
-	}
+	}, {ID: "other-group", Name: "Other", Members: []string{"node-b"}}}
 	p.ActiveTag = "auto-group"
 
 	if !p.IsMember("auto-group") {
@@ -185,17 +186,27 @@ func TestPlanGroupUrltestLiveSelect(t *testing.T) {
 // embedded node, is rejected at compile time.
 func TestPlanGroupValidation(t *testing.T) {
 	p := twoNativePlan()
-	p.Group = &GroupPlan{ID: "g", Name: "Auto", Members: nil}
+	p.Groups = []GroupPlan{{ID: "g", Name: "Auto", Members: nil}}
 	p.ActiveTag = "g"
 	if _, _, err := PlanSocksConfigs(p, "127.0.0.1", 1080); err == nil {
 		t.Error("a group with no members must be rejected")
 	}
 
 	p = twoNativePlan()
-	p.Group = &GroupPlan{ID: "g", Name: "Auto", Members: []string{"ghost"}}
+	p.Groups = []GroupPlan{{ID: "g", Name: "Auto", Members: []string{"ghost"}}}
 	p.ActiveTag = "g"
 	if _, _, err := PlanSocksConfigs(p, "127.0.0.1", 1080); err == nil {
 		t.Error("a group member that is not an embedded node must be rejected")
+	}
+
+	// A group may not draw members from another group's urltest.
+	p = twoNativePlan()
+	p.Groups = []GroupPlan{
+		{ID: "g1", Name: "Auto", Members: []string{"node-a"}},
+		{ID: "g2", Name: "Auto 2", Members: []string{"g1"}},
+	}
+	if _, _, err := PlanSocksConfigs(p, "127.0.0.1", 1080); err == nil {
+		t.Error("a group member naming another group must be rejected")
 	}
 }
 
@@ -204,7 +215,7 @@ func TestPlanGroupValidation(t *testing.T) {
 // interval <= idle_timeout constraint always holds.
 func TestPlanGroupIdleTimeoutClamp(t *testing.T) {
 	p := twoNativePlan()
-	p.Group = &GroupPlan{ID: "g", Name: "Auto", Members: []string{"node-a"}, Interval: 3 * time.Minute}
+	p.Groups = []GroupPlan{{ID: "g", Name: "Auto", Members: []string{"node-a"}, Interval: 3 * time.Minute}}
 	p.ActiveTag = "g"
 	sb, _, err := PlanSocksConfigs(p, "127.0.0.1", 1080)
 	if err != nil {
@@ -214,7 +225,7 @@ func TestPlanGroupIdleTimeoutClamp(t *testing.T) {
 		t.Error("interval <= 30m must NOT emit idle_timeout")
 	}
 
-	p.Group.Interval = 45 * time.Minute
+	p.Groups[0].Interval = 45 * time.Minute
 	sb, _, err = PlanSocksConfigs(p, "127.0.0.1", 1080)
 	if err != nil {
 		t.Fatal(err)

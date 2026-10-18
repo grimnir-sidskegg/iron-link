@@ -142,7 +142,7 @@ func TestBuildPlanEmbedsAllXrayNodes(t *testing.T) {
 		t.Fatal("fixture missing node-c")
 	}
 
-	plan, err := buildPlan(prof, active)
+	plan, err := buildPlan(prof, active, nil)
 	if err != nil {
 		t.Fatalf("buildPlan: %v", err)
 	}

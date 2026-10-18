@@ -284,7 +284,7 @@ func (m *manager) sessionReconnectLocked(profileName string, p *store.Profile, c
 	if base == nil {
 		base = current
 	}
-	fresh, err := buildPlan(p, base)
+	fresh, err := buildPlan(p, base, m.plan.Routing)
 	if err != nil {
 		m.logSink("warn", fmt.Sprintf("%s: %v; the running session is kept as it is", cause, err))
 		return nil
@@ -364,9 +364,12 @@ func (m *manager) relabelPlanLocked(fresh engine.SessionPlan, current *store.Nod
 	}
 	relabel(m.plan.Natives)
 	relabel(m.plan.XrayNodes)
-	if m.plan.Group != nil && fresh.Group != nil && m.plan.Group.Name != fresh.Group.Name {
-		m.plan.Group.Name = fresh.Group.Name
-		changed = true
+	for i := range m.plan.Groups {
+		g := &m.plan.Groups[i]
+		if n, ok := fresh.DisplayNameForTag(g.ID); ok && n != g.Name {
+			g.Name = n
+			changed = true
+		}
 	}
 	if name := current.DisplayName(); m.active.Node == nil || *m.active.Node != name {
 		m.active.Node = &name
@@ -381,7 +384,7 @@ func (m *manager) relabelPlanLocked(fresh engine.SessionPlan, current *store.Nod
 // planMembersEqual reports whether two session plans embed the same node
 // set: the same native and xray members — by id AND document, since a
 // provider can move a node's endpoint or credentials under the stable id a
-// refresh carries over — and the same group lowering (id and member set).
+// refresh carries over — and the same group lowerings (ids and member sets).
 // Member order is ignored: a provider reordering its list changes nothing
 // the session dials, and so is a member's display name: a label, carried
 // over by relabelPlanLocked. Routing, cache path and tunables are settings,
@@ -390,13 +393,16 @@ func planMembersEqual(a, b engine.SessionPlan) bool {
 	if !memberSetsEqual(a.Natives, b.Natives) || !memberSetsEqual(a.XrayNodes, b.XrayNodes) {
 		return false
 	}
-	switch {
-	case a.Group == nil && b.Group == nil:
-		return true
-	case a.Group == nil || b.Group == nil:
+	if len(a.Groups) != len(b.Groups) {
 		return false
 	}
-	return a.Group.ID == b.Group.ID && stringSetsEqual(a.Group.Members, b.Group.Members)
+	for _, ga := range a.Groups {
+		i := slices.IndexFunc(b.Groups, func(gb engine.GroupPlan) bool { return gb.ID == ga.ID })
+		if i < 0 || !stringSetsEqual(ga.Members, b.Groups[i].Members) {
+			return false
+		}
+	}
+	return true
 }
 
 // memberSetsEqual compares two member lists as id → digest maps.

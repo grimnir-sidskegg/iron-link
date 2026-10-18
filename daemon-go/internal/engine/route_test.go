@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	ilproxy "ironlink/daemon/internal/proxy"
 	"ironlink/daemon/internal/routing"
@@ -277,14 +278,61 @@ func TestRouteCompileErrors(t *testing.T) {
 	}
 }
 
-// TestRouteTargetGroup: a routing rule can target an active group node (its
-// urltest tag resolves like any member).
+// TestRouteTargetGroup: a routing rule and the default target can address any
+// lowered group (its urltest tag resolves like any member), active or not, and
+// every lowered group is emitted as its own urltest.
 func TestRouteTargetGroup(t *testing.T) {
-	p := xrayOnlyPlan() // one xray member "9e00...0009"
-	p.Group = &GroupPlan{ID: "grp-1", Name: "Auto", Members: []string{p.XrayNodes[0].ID}}
-	tag, err := p.resolveTarget(routing.RuleTarget{Kind: routing.TargetNode, Node: "grp-1"})
-	if err != nil || tag != "grp-1" {
-		t.Errorf("group node target = %q, %v; want grp-1, nil", tag, err)
+	p := xrayOnlyPlan() // the active member
+	other := p.XrayNodes[0]
+	other.ID = "9e000000-0000-4000-8000-000000000010"
+	p.XrayNodes = append(p.XrayNodes, other)
+	p.Groups = []GroupPlan{
+		{ID: "grp-1", Name: "Auto", Members: []string{p.XrayNodes[0].ID, other.ID}},
+		{ID: "grp-2", Name: "Fallback", Members: []string{other.ID}, Interval: 45 * time.Minute},
+	}
+	p.Routing = &routing.Config{
+		Name:          "groups",
+		DefaultTarget: routing.RuleTarget{Kind: routing.TargetNode, Node: "grp-2"},
+		Rules: []routing.Rule{{
+			Conditions: map[string]json.RawMessage{"domain_suffix": json.RawMessage(`["example.com"]`)},
+			Target:     routing.RuleTarget{Kind: routing.TargetNode, Node: "grp-1"},
+		}},
+	}
+	sb, _, err := PlanSocksConfigs(p, "127.0.0.1", 1080)
+	if err != nil {
+		t.Fatalf("PlanSocksConfigs: %v", err)
+	}
+	var cfg struct {
+		Outbounds []map[string]any `json:"outbounds"`
+		Route     struct {
+			Final string           `json:"final"`
+			Rules []map[string]any `json:"rules"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal(sb, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Route.Final != "grp-2" {
+		t.Errorf("final = %q, want grp-2", cfg.Route.Final)
+	}
+	if last := cfg.Route.Rules[len(cfg.Route.Rules)-1]; last["outbound"] != "grp-1" {
+		t.Errorf("group rule outbound = %v, want grp-1", last["outbound"])
+	}
+	urltests := map[string]map[string]any{}
+	for _, ob := range cfg.Outbounds {
+		if ob["type"] == "urltest" {
+			urltests[ob["tag"].(string)] = ob
+		}
+	}
+	if len(urltests) != 2 || urltests["grp-1"] == nil || urltests["grp-2"] == nil {
+		t.Fatalf("urltests = %v, want grp-1 and grp-2", urltests)
+	}
+	// The interval <= idle_timeout clamp applies per group.
+	if _, ok := urltests["grp-1"]["idle_timeout"]; ok {
+		t.Error("grp-1 (default interval) must not emit idle_timeout")
+	}
+	if urltests["grp-2"]["idle_timeout"] != "45m0s" {
+		t.Errorf("grp-2 idle_timeout = %v, want 45m0s", urltests["grp-2"]["idle_timeout"])
 	}
 }
 
