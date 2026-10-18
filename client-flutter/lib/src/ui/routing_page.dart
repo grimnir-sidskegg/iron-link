@@ -71,7 +71,10 @@ class _RoutingPageState extends State<RoutingPage> {
       builder: (_) => RoutingEditorPage(
         draft: draft,
         schema: loaded.schema,
-        nodes: [for (final n in loaded.nodes) (id: n.id, name: n.name)],
+        nodes: [
+          for (final n in loaded.nodes)
+            (id: n.id, name: n.name, isGroup: n.isGroup),
+        ],
         onSave: (doc) =>
             guardOk(context, () => widget.client.upsertRouting(doc)),
         // The picker only yields a path STRING for the config; the daemon —

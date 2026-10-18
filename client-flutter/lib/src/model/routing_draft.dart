@@ -2,7 +2,7 @@
 /// routing editor; the rendering lives under `ui/`.
 ///
 /// One deliberate design point: array-kind conditions are edited as a list
-/// of per-item drafts ([CondItem]) rather than one comma-joined text. A
+/// of whole items ([CondDraft.items]) rather than one comma-joined text. A
 /// joined text re-split on commas AND spaces corrupts any value with an
 /// internal space (e.g. a Windows `process_path` like
 /// `C:\Program Files\...`); here items round-trip verbatim and are never
@@ -122,34 +122,26 @@ final class OpaqueTarget extends TargetDraft {
   Object? toValue() => raw;
 }
 
-/// One editable item of an array-kind condition. A mutable wrapper rather
-/// than a bare String so each item has OBJECT IDENTITY: widget rows key on
-/// it, and removing a middle item must not shift field state onto a
-/// neighbour.
-final class CondItem {
-  CondItem([this.value = '']);
-
-  String value;
-}
-
 /// One condition row on an editable rule: the schema [key], the cached
 /// schema [kind] (driving the widget + JSON shape), and the raw input
-/// ([value] for string/number, [boolValue] for the checkbox kind, [items]
-/// for array kinds).
+/// ([value] for string/number, [boolValue] for the checkbox kind, [items] +
+/// [pending] for array kinds).
 final class CondDraft {
   CondDraft({
     required this.key,
     required this.kind,
     this.value = '',
     this.boolValue = false,
-    List<CondItem>? items,
+    List<String>? items,
+    this.pending = '',
+    this.pendingAt,
   }) : items = items ?? [];
 
   /// Decodes a JSON condition value into a draft for [key]/[kind].
   factory CondDraft.fromValue(String key, String kind, Object? v) {
     var value = '';
     var boolValue = false;
-    final items = <CondItem>[];
+    final items = <String>[];
     switch (kind) {
       case 'bool':
         boolValue = v is bool ? v : false;
@@ -162,7 +154,7 @@ final class CondDraft {
       default:
         if (v is List) {
           for (final i in v) {
-            items.add(CondItem(i is String ? i : jsonEncode(i)));
+            items.add(i is String ? i : jsonEncode(i));
           }
         }
     }
@@ -174,7 +166,22 @@ final class CondDraft {
   final String kind;
   String value;
   bool boolValue;
-  final List<CondItem> items;
+  final List<String> items;
+
+  /// Array kinds only: the typed-but-uncommitted input. [toValue] encodes it
+  /// as one more item, so a value is never lost just because it was not
+  /// committed before a save.
+  String pending;
+
+  /// Where [pending] sits among [items] (null or out of range = the end), so
+  /// re-editing an item and saving keeps the value order verbatim.
+  int? pendingAt;
+
+  /// [pendingAt] clamped to a valid insert index.
+  int get pendingIndex {
+    final at = pendingAt;
+    return at != null && at <= items.length ? at : items.length;
+  }
 
   /// Encodes this condition's input into its JSON value per [kind],
   /// validating ports/numbers; throws [RoutingDraftError].
@@ -216,13 +223,13 @@ final class CondDraft {
     }
   }
 
-  /// Trims each item, drops blank ones, and maps the rest through [parse] —
-  /// NO re-tokenizing, so an item may contain spaces and commas. Errors if
-  /// nothing remains.
+  /// Trims each item (and [pending]), drops blank ones, and maps the rest
+  /// through [parse] — NO re-tokenizing, so an item may contain spaces and
+  /// commas. Errors if nothing remains.
   List<Object?> _itemsToValue(Object? Function(String tok) parse) {
     final out = <Object?>[];
-    for (final item in items) {
-      final tok = item.value.trim();
+    for (final item in [...items]..insert(pendingIndex, pending)) {
+      final tok = item.trim();
       if (tok.isEmpty) continue;
       out.add(parse(tok));
     }

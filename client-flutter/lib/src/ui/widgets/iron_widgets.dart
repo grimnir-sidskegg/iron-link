@@ -100,31 +100,35 @@ class IronTag extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = uppercase ? label.toUpperCase() : label;
+    // Without an icon the label sits directly in the pill, so a width-capped
+    // parent ellipsizes it instead of overflowing.
+    final text = Text(
+      uppercase ? label.toUpperCase() : label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: color,
+        fontWeight: FontWeight.w700,
+        fontSize: 11.5,
+        letterSpacing: uppercase ? 0.6 : 0.1,
+      ),
+    );
     return Container(
       padding: EdgeInsets.symmetric(horizontal: icon == null ? 10 : 8, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 13, color: color),
-            const SizedBox(width: 5),
-          ],
-          Text(
-            text,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w700,
-              fontSize: 11.5,
-              letterSpacing: uppercase ? 0.6 : 0.1,
+      child: icon == null
+          ? text
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 13, color: color),
+                const SizedBox(width: 5),
+                text,
+              ],
             ),
-          ),
-        ],
-      ),
     );
   }
 }

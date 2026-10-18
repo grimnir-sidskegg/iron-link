@@ -1,5 +1,5 @@
 /// The pure routing-draft model: draft/encode/validate cases for every
-/// condition kind (including the per-item [CondItem] editing), plus a
+/// condition kind (including whole-item arrays and uncommitted input), plus a
 /// round-trip over the shared contract fixtures (`routing_config` parsed
 /// against the real `routing_schema`).
 library;
@@ -50,7 +50,7 @@ void main() {
         CondDraft(
             key: 'domain_suffix',
             kind: 'strings',
-            items: [CondItem('.youtube.com'), CondItem(' .ggpht.com ')]),
+            items: ['.youtube.com', ' .ggpht.com ']),
       ],
     ));
 
@@ -94,8 +94,29 @@ void main() {
     expect(target.node, isNull);
     expect(rule.conds, hasLength(1));
     expect(rule.conds.single.key, 'domain_suffix');
-    expect([for (final i in rule.conds.single.items) i.value],
-        ['.youtube.com', '.ggpht.com']);
+    expect(rule.conds.single.items, ['.youtube.com', '.ggpht.com']);
+  });
+
+  test('uncommitted input is encoded as one more item', () {
+    final cond = CondDraft(
+        key: 'domain_suffix',
+        kind: 'strings',
+        items: ['.youtube.com'],
+        pending: ' .ggpht.com ');
+    expect(cond.toValue(), ['.youtube.com', '.ggpht.com']);
+    // Blank input adds nothing...
+    cond.pending = '  ';
+    expect(cond.toValue(), ['.youtube.com']);
+    // ...but input alone is enough to satisfy "has values".
+    expect(CondDraft(key: 'port', kind: 'ports', pending: '443').toValue(),
+        [443]);
+    // A re-edited item keeps its place; an out-of-range slot means the end.
+    cond
+      ..pending = '.ggpht.com'
+      ..pendingAt = 0;
+    expect(cond.toValue(), ['.ggpht.com', '.youtube.com']);
+    cond.pendingAt = 5;
+    expect(cond.toValue(), ['.youtube.com', '.ggpht.com']);
   });
 
   test('a bad port value is rejected', () {
@@ -103,7 +124,7 @@ void main() {
     ed.rules.add(FlatRule(
       target: RouteTarget('Block'),
       conds: [
-        CondDraft(key: 'port', kind: 'ports', items: [CondItem('70000')]),
+        CondDraft(key: 'port', kind: 'ports', items: ['70000']),
       ],
     ));
     expect(ed.toValue, throwsDraftError(contains('invalid port')));
@@ -117,7 +138,7 @@ void main() {
         CondDraft(
             key: 'domain_suffix',
             kind: 'strings',
-            items: [CondItem(), CondItem('  ')]),
+            items: ['', '  ']),
       ],
     ));
     expect(ed.toValue, throwsDraftError(contains('has no values')));
@@ -129,7 +150,7 @@ void main() {
       target: RouteTarget('Node'),
       conds: [
         CondDraft(
-            key: 'domain_suffix', kind: 'strings', items: [CondItem('x.com')]),
+            key: 'domain_suffix', kind: 'strings', items: ['x.com']),
       ],
     ));
     expect(ed.toValue, throwsDraftError(contains('pick a node')));
@@ -140,7 +161,7 @@ void main() {
     ed.rules.add(FlatRule(
       target: RouteTarget('Block'),
       conds: [
-        CondDraft(key: 'rule_set', kind: 'strings', items: [CondItem('missing')]),
+        CondDraft(key: 'rule_set', kind: 'strings', items: ['missing']),
       ],
     ));
     expect(ed.toValue, throwsDraftError(contains('undefined rule-set')));
@@ -245,7 +266,7 @@ void main() {
     final ed = RoutingDraft.fromValue(doc, schema);
     expect(ed.error, isNull);
     final rule = ed.rules.single as FlatRule;
-    expect(rule.conds.single.items.single.value,
+    expect(rule.conds.single.items.single,
         'C:\\Program Files\\Firefox\\firefox.exe');
     expectDeepEquals(ed.toValue(), doc);
   });
