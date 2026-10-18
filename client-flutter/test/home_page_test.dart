@@ -13,6 +13,7 @@ import 'package:iron_link_flutter/src/app/session.dart';
 import 'package:iron_link_flutter/src/ipc/client.dart';
 import 'package:iron_link_flutter/src/ui/dialogs.dart';
 import 'package:iron_link_flutter/src/ui/home_page.dart';
+import 'package:iron_link_flutter/src/ui/widgets/iron_widgets.dart';
 import 'package:iron_link_flutter/src/ui/widgets/motion.dart';
 import 'package:iron_link_flutter/src/wire/wire.dart';
 
@@ -232,6 +233,23 @@ void main() {
 
     expect(client.probed, containsAll(<String>['n1', 'n2']));
     expect(client.probed, isNot(contains('g1')));
+  });
+
+  testWidgets("a subscription's latency test probes only its nodes",
+      (tester) async {
+    final client = _FakeClient(nodes: [tokyo, osaka], subs: [mySub, emptySub]);
+    await _pumpHome(tester, client);
+
+    final buttons = find.byTooltip('Test latency');
+    expect(buttons, findsNWidgets(2));
+    await tester.tap(buttons.first);
+    await tester.pumpAndSettle();
+    expect(client.probed, ['n2']);
+    // A subscription with no nodes has nothing to probe.
+    expect(
+        tester.widget<IronIconButton>(find.ancestor(
+            of: buttons.last, matching: find.byType(IronIconButton))).onPressed,
+        isNull);
   });
 
   testWidgets('an active running group shows the live member badge',

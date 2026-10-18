@@ -940,6 +940,11 @@ class _HomePageState extends State<HomePage> {
     final hasName = sub.name.trim().isNotEmpty;
     final title = hasName ? sub.name : _maskedUrl(sub.url);
     final titleColor = enabled ? t.text : t.faint;
+    // Its dialable nodes, for the per-subscription latency test.
+    final probe = [
+      for (final n in _nodes ?? const <NodeInfo>[])
+        if (n.subId == sub.id && !n.isGroup) n.id,
+    ];
     return IronCard(
       onTap: () => setState(() {
         expanded ? _collapsed.add(sub.id) : _collapsed.remove(sub.id);
@@ -1008,6 +1013,12 @@ class _HomePageState extends State<HomePage> {
             color: t.dim,
           ),
           const SizedBox(width: 4),
+          IronIconButton(
+            icon: Icons.speed,
+            tooltip: 'Test latency',
+            onPressed: probe.isEmpty ? null : () => _probe(probe),
+          ),
+          const SizedBox(width: 6),
           IronIconButton(
             icon: Icons.sync,
             tooltip: 'Refresh',
