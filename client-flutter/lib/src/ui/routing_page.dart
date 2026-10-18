@@ -82,16 +82,13 @@ class _RoutingPageState extends State<RoutingPage> {
         pickFile: () async => (await openFile())?.path,
       ),
     ));
-    if (saved == true && mounted) {
-      showSnack(context, 'Routing config saved');
-      _load();
-    }
+    if (saved == true && mounted) await _afterSave(info);
   }
 
   Future<void> _newFromJson() async {
     final config = await _promptRoutingJson(context);
     if (config == null || !mounted) return;
-    await _upsert(config);
+    await _upsert(config, null);
   }
 
   Future<void> _editAsJson(RoutingInfo info) async {
@@ -100,14 +97,52 @@ class _RoutingPageState extends State<RoutingPage> {
     final config = await _promptRoutingJson(context,
         initial: const JsonEncoder.withIndent('  ').convert(doc));
     if (config == null || !mounted) return;
-    await _upsert(config);
+    // An edited id makes the upsert add a new config, not touch [info].
+    await _upsert(config, config['id'] == info.id ? info : null);
   }
 
-  Future<void> _upsert(Map<String, Object?> config) async {
-    if (await guardOk(context, () => widget.client.upsertRouting(config))) {
-      if (mounted) showSnack(context, 'Routing config saved');
-      _load();
+  Future<void> _upsert(Map<String, Object?> config, RoutingInfo? info) async {
+    if (await guardOk(context, () => widget.client.upsertRouting(config)) &&
+        mounted) {
+      await _afterSave(info);
     }
+  }
+
+  /// After saving [info] (null = a new config): `upsert_routing` only
+  /// persists, so a running session keeps the old compiled routing — when
+  /// [info] is the active one, offer to restart onto the saved version. The
+  /// active flag comes from the list, so a rename in the editor is harmless.
+  Future<void> _afterSave(RoutingInfo? info) async {
+    _load();
+    if (info == null || !info.active || !widget.session.isRunning) {
+      showSnack(context, 'Routing config saved');
+    } else if (!await confirm(
+        context,
+        'Apply routing',
+        'The connection still uses the previous version of this routing. '
+            'Restart it now to apply the change?')) {
+      if (mounted) {
+        showSnack(
+            context, 'Routing config saved; it applies on the next connect');
+      }
+    } else if (mounted && await _restart(info.id)) {
+      if (mounted) showSnack(context, 'Routing config saved and applied');
+    }
+  }
+
+  /// Restarts the running session (bare `activate` re-applies the persisted
+  /// context), after [persist] when given; [id]'s row spins meanwhile.
+  /// True = restarted.
+  Future<bool> _restart(String id, [Future<void> Function()? persist]) async {
+    setState(() => _selecting = id);
+    final tun = widget.session.active?.tun ?? true;
+    final ok = (persist == null || await guardOk(context, persist)) &&
+        mounted &&
+        await guardOk(context, () => widget.client.activate(tun: tun));
+    if (ok) await widget.session.refreshStatus();
+    if (mounted) setState(() => _selecting = null);
+    _load();
+    return ok;
   }
 
   /// Selects [info] as the active routing. Idle: just persist the default.
@@ -129,17 +164,11 @@ class _RoutingPageState extends State<RoutingPage> {
             'new routing. Continue?')) {
       return;
     }
-    if (!mounted) return;
-    setState(() => _selecting = info.id);
-    final tun = widget.session.active?.tun ?? true;
-    if (await guardOk(context, () => widget.client.selectRouting(info.id)) &&
-        mounted &&
-        await guardOk(context, () => widget.client.activate(tun: tun))) {
-      await widget.session.refreshStatus();
-      if (mounted) showSnack(context, 'Switched to "${info.name}"');
+    if (mounted &&
+        await _restart(info.id, () => widget.client.selectRouting(info.id)) &&
+        mounted) {
+      showSnack(context, 'Switched to "${info.name}"');
     }
-    if (mounted) setState(() => _selecting = null);
-    _load();
   }
 
   @override
