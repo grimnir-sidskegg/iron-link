@@ -8,6 +8,7 @@ import '../ipc/client.dart';
 import '../model/routing_draft.dart';
 import '../wire/wire.dart';
 import 'app.dart';
+import 'routing_diagram.dart';
 import 'routing_editor_page.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_typography.dart';
@@ -17,7 +18,8 @@ import 'widgets/iron_widgets.dart';
 /// editor ([RoutingEditorPage]) over the daemon's `routing_schema` +
 /// `get_routing`. Raw JSON stays as the secondary path — per-row
 /// "Edit as JSON" and a header "New from JSON" — for documents the form
-/// only preserves opaquely.
+/// only preserves opaquely. Above the list, a [RoutingDiagram] of the
+/// active config.
 class RoutingPage extends StatefulWidget {
   const RoutingPage({super.key, required this.client, required this.session});
 
@@ -33,6 +35,10 @@ class _RoutingPageState extends State<RoutingPage> {
   String? _error;
   String? _selecting; // id of the routing being selected (restart in flight)
 
+  /// The active config's draft (null = none active) and the node list, for
+  /// the diagram; reloaded with the list.
+  ({RoutingDraft? draft, List<NodeRef> nodes})? _diagram;
+
   @override
   void initState() {
     super.initState();
@@ -47,6 +53,13 @@ class _RoutingPageState extends State<RoutingPage> {
         _routing = routing;
         _error = null;
       });
+      final active = routing.where((r) => r.active).firstOrNull;
+      final nodes = _refs(await widget.client.listNodes());
+      final draft = active == null
+          ? null
+          : RoutingDraft.fromValue(await widget.client.getRouting(active.id),
+              await widget.client.routingSchema());
+      if (mounted) setState(() => _diagram = (draft: draft, nodes: nodes));
     } on ClientException catch (e) {
       if (!mounted) return;
       setState(() => _error = e.message);
@@ -71,10 +84,7 @@ class _RoutingPageState extends State<RoutingPage> {
       builder: (_) => RoutingEditorPage(
         draft: draft,
         schema: loaded.schema,
-        nodes: [
-          for (final n in loaded.nodes)
-            (id: n.id, name: n.name, isGroup: n.isGroup),
-        ],
+        nodes: _refs(loaded.nodes),
         onSave: (doc) =>
             guardOk(context, () => widget.client.upsertRouting(doc)),
         // The picker only yields a path STRING for the config; the daemon —
@@ -225,6 +235,11 @@ class _RoutingPageState extends State<RoutingPage> {
               ),
             ),
           const SizedBox(height: 16),
+          if (_diagram case final d?) ...[
+            RoutingDiagram(
+                session: widget.session, draft: d.draft, nodes: d.nodes),
+            const SizedBox(height: 16),
+          ],
           if (routing == null)
             const Padding(
               padding: EdgeInsets.only(top: 48),
@@ -328,6 +343,9 @@ class _RoutingPageState extends State<RoutingPage> {
     );
   }
 }
+
+List<NodeRef> _refs(List<NodeInfo> nodes) =>
+    [for (final n in nodes) (id: n.id, name: n.name, isGroup: n.isGroup)];
 
 Future<Map<String, Object?>?> _promptRoutingJson(BuildContext context,
     {String? initial}) {

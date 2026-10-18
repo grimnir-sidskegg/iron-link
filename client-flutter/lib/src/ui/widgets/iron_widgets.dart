@@ -11,6 +11,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
+import '../theme/app_typography.dart';
 
 /// An outlined surface — the workhorse container for cards, panels and rows.
 /// Fills with [raised] (one step above `panel`) by default; pass `tinted` for a
@@ -158,6 +159,52 @@ class IronKindChip extends StatelessWidget {
           fontWeight: FontWeight.w600,
           color: accent ? t.accentStrong : t.dim,
         ),
+      ),
+    );
+  }
+}
+
+/// A pipeline end-node tile (You / Internet): a `panel` square with the
+/// tinted icon and its caption stacked *inside* the tile — so the label rides
+/// with the square (not below it) and a thread connects to the tile's centre.
+class IronEndNode extends StatelessWidget {
+  const IronEndNode({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.active,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.iron;
+    final color = active ? t.accent : t.dim;
+    return Container(
+      width: 58,
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        color: t.panel,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: t.border),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 19, color: color),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.clip,
+            style: context.mono(9.5, color: t.faint),
+          ),
+        ],
       ),
     );
   }

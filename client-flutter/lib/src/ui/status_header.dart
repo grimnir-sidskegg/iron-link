@@ -40,10 +40,10 @@ String? _leadingFlag(String name) {
   return null;
 }
 
-/// The session hero: the centred power orb + status word, the mode/uptime/rate
-/// info row, and the signature pipeline panel. Everything shown is read back
-/// from the daemon. Hosted at the top of HomePage's scroll view — scrolling and
-/// padding belong to the host, so the root is a plain Column.
+/// The session hero: the signature pipeline (You → power orb + status word →
+/// the active node), then the mode/uptime/rate info row. Everything shown is
+/// read back from the daemon. Hosted at the top of HomePage's scroll view —
+/// scrolling and padding belong to the host, so the root is a plain Column.
 ///
 /// Tapping the pipeline's server pill calls [onServerTap] (HomePage scrolls to
 /// its node list so the user can switch); the daemon-reachable banner renders
@@ -133,14 +133,17 @@ class _StatusHeaderState extends State<StatusHeader> {
             ],
             if (running && s.routingWarnings.isNotEmpty)
               _RoutingWarningsBanner(warnings: s.routingWarnings),
-            // 1) The power orb + status word.
-            Center(
-              child: _PowerOrb(
+            // 1) You — thread — power orb — thread — the active node.
+            _Pipeline(
+              session: s,
+              running: running,
+              orb: _PowerOrb(
                 running: running,
                 busy: _busy,
                 disabled: disabled,
                 onTap: disabled ? null : (running ? _stop : _activate),
               ),
+              onServerTap: widget.onServerTap,
             ),
             const SizedBox(height: 18),
             // 2) Mode chip + uptime on the left, up/down rate on the right.
@@ -156,14 +159,6 @@ class _StatusHeaderState extends State<StatusHeader> {
                 onChanged: (v) => setState(() => _tun = v),
               ),
             ],
-            const SizedBox(height: 20),
-            // 3) The signature pipeline panel.
-            _PipelinePanel(
-              session: s,
-              tun: _tun,
-              running: running,
-              onServerTap: widget.onServerTap,
-            ),
           ],
         );
       },
@@ -241,8 +236,8 @@ class _PowerOrb extends StatelessWidget {
           child: GestureDetector(
             onTap: onTap,
             child: SizedBox(
-              width: 150,
-              height: 150,
+              width: _orbBox,
+              height: _orbBox,
               child: PulseRing(
                 animate: animate,
                 color: t.accent,
@@ -252,9 +247,18 @@ class _PowerOrb extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        Text(
-          running ? 'Connected' : 'Disconnected',
-          style: context.displayWord?.copyWith(color: running ? t.text : t.dim),
+        // Capped (shrinking if ever wider), so the word can never squeeze the
+        // pipeline row past the minimum window width.
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 200),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              running ? 'Connected' : 'Disconnected',
+              style: context.displayWord
+                  ?.copyWith(color: running ? t.text : t.dim),
+            ),
+          ),
         ),
       ],
     );
@@ -377,178 +381,62 @@ class _ModePicker extends StatelessWidget {
   }
 }
 
-/// The signature pipeline: You → ENCRYPTED → server selector → EXIT → Internet.
-/// The animated thread flows only while running (and reduce-motion off); idle,
-/// everything desaturates to neutral tokens. Tapping the server pill calls
+/// The orb's square footprint (disc + pulse room); the pipeline's side items
+/// centre on it, so the threads meet the disc rather than the orb + word.
+const double _orbBox = 150;
+
+/// The signature pipeline: You → thread → [orb] → thread → server pill. The
+/// threads flow only while running (and reduce-motion off); idle, everything
+/// desaturates to neutral tokens. Tapping the server pill calls
 /// [onServerTap].
-class _PipelinePanel extends StatelessWidget {
-  const _PipelinePanel({
+class _Pipeline extends StatelessWidget {
+  const _Pipeline({
     required this.session,
-    required this.tun,
     required this.running,
+    required this.orb,
     required this.onServerTap,
   });
 
   final DaemonSession session;
-  final bool tun;
   final bool running;
+  final Widget orb;
   final VoidCallback? onServerTap;
 
   @override
   Widget build(BuildContext context) {
     final t = context.iron;
     final animate = running && !IronScope.reduceMotionOf(context);
-    final accent = running ? t.accent : t.faint;
-    final idle = t.border;
-
-    return IronCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              _EndNode(icon: Icons.laptop_mac, label: 'You', active: running),
-              Expanded(
-                child: _ThreadSegment(
-                  label: 'ENCRYPTED',
-                  icon: Icons.lock_outline,
-                  animate: animate,
-                  accent: accent,
-                  idle: idle,
-                ),
-              ),
-              _ServerPill(
-                session: session,
-                running: running,
-                onTap: onServerTap,
-              ),
-              Expanded(
-                child: _ThreadSegment(
-                  label: 'EXIT',
-                  animate: animate,
-                  accent: accent,
-                  idle: idle,
-                ),
-              ),
-              _EndNode(icon: Icons.public, label: 'Internet', active: running),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// An end-node tile (You / Internet): a `panel` square with the tinted icon and
-/// its caption stacked *inside* the tile — so the label rides with the square
-/// (not below it) and the thread connects to the tile's centre.
-class _EndNode extends StatelessWidget {
-  const _EndNode({
-    required this.icon,
-    required this.label,
-    required this.active,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.iron;
-    final color = active ? t.accent : t.dim;
-    return Container(
-      width: 58,
-      height: 56,
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(
-        color: t.panel,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: t.border),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 19, color: color),
-          const SizedBox(height: 3),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.clip,
-            style: context.mono(9.5, color: t.faint),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// One thread segment between two pipeline nodes: a small uppercase label
-/// (optionally with a lock glyph) above the animated [PipelineThread].
-class _ThreadSegment extends StatelessWidget {
-  const _ThreadSegment({
-    required this.label,
-    required this.animate,
-    required this.accent,
-    required this.idle,
-    this.icon,
-  });
-
-  final String label;
-  final IconData? icon;
-  final bool animate;
-  final Color accent;
-  final Color idle;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.iron;
-    // A box the height of the end-node tiles, with the thread centred so its
-    // line meets the tiles' centre; the label floats just above the line.
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: SizedBox(
-        height: 56,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            PipelineThread(
+    Widget level(Widget child) =>
+        SizedBox(height: _orbBox, child: Center(child: child));
+    Widget thread() => Expanded(
+          child: level(Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: PipelineThread(
               animate: animate,
-              accent: accent,
-              idle: idle,
+              accent: running ? t.accent : t.faint,
+              idle: t.faint,
               height: 16,
             ),
-            Positioned(
-              top: 9,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (icon != null) ...[
-                    Icon(icon, size: 11, color: t.faint),
-                    const SizedBox(width: 3),
-                  ],
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.7,
-                      color: t.faint,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+          )),
+        );
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        level(IronEndNode(icon: Icons.laptop_mac, label: 'You', active: running)),
+        thread(),
+        orb,
+        thread(),
+        level(_ServerPill(
+          session: session,
+          running: running,
+          onTap: onServerTap,
+        )),
+      ],
     );
   }
 }
 
-/// The centre of the pipeline: the active node, as a tappable pill. Accent-
+/// The end of the pipeline: the active node, as a tappable pill. Accent-
 /// tinted while running, neutral `raised` when idle. Shows a flag (when the
 /// node name carries one), the node name, and a protocol/security caption.
 /// Tapping it scrolls to the node list below (no chevron — the list is always

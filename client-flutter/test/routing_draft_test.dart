@@ -270,4 +270,84 @@ void main() {
         'C:\\Program Files\\Firefox\\firefox.exe');
     expectDeepEquals(ed.toValue(), doc);
   });
+
+  group('routeLanes', () {
+    const nodes = [
+      (id: 'n1', name: 'Tokyo', isGroup: false),
+      (id: 'g1', name: 'Fastest', isGroup: true),
+    ];
+    List<(String, String?)> keys(List<RouteLane> lanes) =>
+        [for (final l in lanes) (l.target.kind, l.target.node)];
+
+    test('dedupes targets: default first, then first appearance', () {
+      final draft = RoutingDraft.fromValue({
+        'name': 'mixed',
+        'rules': [
+          {'domain_suffix': ['.a'], 'target': 'Block'},
+          {'domain_suffix': ['.b'], 'target': {'Node': 'n1'}},
+          {'domain_suffix': ['.c'], 'target': 'Block'},
+          {'domain_suffix': ['.d'], 'target': 'Direct'},
+          {'domain_suffix': ['.e'], 'target': {'Node': 'g1'}},
+          {'domain_suffix': ['.f'], 'target': 'Fancy'},
+        ],
+        'default_target': 'Direct',
+      }, testSchema());
+      final lanes = routeLanes(draft, nodes);
+      expect(keys(lanes), [
+        ('Direct', null),
+        ('Block', null),
+        ('Node', 'n1'),
+        ('Node', 'g1'),
+        ('Fancy', null),
+      ]);
+      expect([for (final l in lanes) l.rules], [
+        [3],
+        [0, 2],
+        [1],
+        [4],
+        [5],
+      ]);
+      expect([for (final l in lanes) l.isDefault],
+          [true, false, false, false, false]);
+      expect(lanes[2].node?.name, 'Tokyo');
+      expect(lanes[3].node?.isGroup, isTrue);
+    });
+
+    test('a node id missing from the list keeps a lane, unresolved', () {
+      final draft = RoutingDraft.fromValue({
+        'name': 'gone',
+        'rules': [
+          {'port': [443], 'target': {'Node': 'ghost'}},
+        ],
+        'default_target': 'DefaultProxy',
+      }, testSchema());
+      final lanes = routeLanes(draft, nodes);
+      expect(keys(lanes), [('DefaultProxy', null), ('Node', 'ghost')]);
+      expect(lanes[1].node, isNull);
+      expect(lanes[1].rules, [0]);
+    });
+
+    test('opaque rules and targets get no lane', () {
+      final draft = RoutingDraft.fromValue({
+        'name': 'opaque',
+        'rules': [
+          {'type': 'logical', 'mode': 'or', 'rules': [], 'target': 'Block'},
+          {'port': [53], 'target': {'action': 'hijack-dns'}},
+          {'port': [80], 'target': 'Direct'},
+        ],
+        'default_target': {'action': 'sniff'},
+      }, testSchema());
+      final lanes = routeLanes(draft, nodes);
+      expect(keys(lanes), [('Direct', null)]);
+      expect(lanes.single.rules, [2]);
+      expect(lanes.single.isDefault, isFalse);
+    });
+
+    test('no routing is one default DefaultProxy lane', () {
+      final lanes = routeLanes(null, nodes);
+      expect(keys(lanes), [('DefaultProxy', null)]);
+      expect(lanes.single.isDefault, isTrue);
+      expect(lanes.single.rules, isEmpty);
+    });
+  });
 }

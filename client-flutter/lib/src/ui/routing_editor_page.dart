@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../model/routing_draft.dart';
 import '../wire/wire.dart';
+import 'routing_widgets.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_typography.dart';
 import 'widgets/iron_widgets.dart';
@@ -34,7 +35,7 @@ class RoutingEditorPage extends StatefulWidget {
 
   /// The profile's nodes and auto groups for the Node target picker, in
   /// daemon order.
-  final List<({String id, String name, bool isGroup})> nodes;
+  final List<NodeRef> nodes;
 
   /// Opens the system file picker and resolves to the picked path (null =
   /// cancelled). Injected — never the plugin directly — so the page stays
@@ -254,17 +255,7 @@ class _RoutingEditorPageState extends State<RoutingEditorPage> {
                       child: Text('${i + 1}',
                           style: context.mono(12.5, color: t.dim)),
                     ),
-                    Expanded(
-                      child: switch (rule) {
-                        final FlatRule r => _summary(r),
-                        OpaqueRule() => Text(
-                            'logical / advanced rule — preserved; edit raw '
-                            'via Edit as JSON',
-                            style: TextStyle(color: t.dim),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                      },
-                    ),
+                    Expanded(child: RuleSummary(rule)),
                     const SizedBox(width: 8),
                     if (rule is FlatRule)
                       _targetPill(rule.target, editable: open),
@@ -308,51 +299,6 @@ class _RoutingEditorPageState extends State<RoutingEditorPage> {
     );
   }
 
-  /// The collapsed one-liner: `key value(+N)` per condition, keys in mono +
-  /// dim, values in text colour; preserved extra keys by name only.
-  Widget _summary(FlatRule rule) {
-    final t = context.iron;
-    final spans = <InlineSpan>[];
-    void add(String key, String value) {
-      if (spans.isNotEmpty) {
-        spans.add(TextSpan(text: '  ·  ', style: TextStyle(color: t.faint)));
-      }
-      spans.add(TextSpan(text: key, style: context.mono(12, color: t.dim)));
-      if (value.isNotEmpty) {
-        spans.add(TextSpan(text: ' $value', style: TextStyle(color: t.text)));
-      }
-    }
-
-    for (final c in rule.conds) {
-      add(c.key, switch (c.kind) {
-        'bool' => '${c.boolValue}',
-        'string' || 'number' => c.value.trim(),
-        _ when c.items.length > 1 => '${c.items.first} +${c.items.length - 1}',
-        _ => c.items.firstOrNull ?? '',
-      });
-    }
-    for (final key in rule.extra.keys) {
-      add(key, '');
-    }
-    if (spans.isEmpty) {
-      return Text('no conditions', style: TextStyle(color: t.faint));
-    }
-    return Text.rich(TextSpan(children: spans),
-        maxLines: 1, overflow: TextOverflow.ellipsis);
-  }
-
-  /// The pill colour for a schema target token; an unknown (future) token
-  /// is neutral.
-  Color _targetColor(String kind) {
-    final c = context.appColors;
-    return switch (kind) {
-      'DefaultProxy' || nodeToken => c.routeProxy,
-      'Direct' => c.routeDirect,
-      'Block' => c.routeBlocked,
-      _ => c.iron.dim,
-    };
-  }
-
   /// A target as a coloured pill labelled with the schema token verbatim (a
   /// Node target shows the node's name). [editable] makes it a menu over
   /// `schema.targets` in which the Node token expands into the profile's
@@ -360,72 +306,63 @@ class _RoutingEditorPageState extends State<RoutingEditorPage> {
   /// Width-capped and ellipsized: a long node name must not push the rule's
   /// chevron and delete button off the row.
   Widget _targetPill(TargetDraft target, {required bool editable}) {
-    Widget capped(Widget child) => ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 240), child: child);
+    final pill = RouteTargetPill(target, nodes: widget.nodes);
+    if (!editable || target is! RouteTarget) return pill;
     final t = context.iron;
-    if (target is! RouteTarget) {
-      return capped(Text('advanced action target (preserved)',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: t.dim)));
-    }
-    final node = widget.nodes.where((n) => n.id == target.node).firstOrNull;
-    // A stored id missing from the profile still shows (and saves) as-is.
-    final id = target.node ?? '';
-    final label = target.kind != nodeToken
-        ? target.kind
-        : node?.name ?? (id.isEmpty ? nodeToken : id);
-    final pill = IronTag(label, color: _targetColor(target.kind));
-    if (!editable) return capped(pill);
+    Color color(String kind) => routeTargetColor(context, kind);
     // A kind the schema does not list (a future daemon) must still render.
     final kinds = [
       if (!widget.schema.targets.contains(target.kind)) target.kind,
       ...widget.schema.targets,
     ];
-    return capped(PopupMenuButton<(String, String?)>(
-      tooltip: 'Change target',
-      onSelected: (v) => setState(() {
-        target.kind = v.$1;
-        target.node = v.$2;
-      }),
-      itemBuilder: (context) => [
-        for (final k in kinds)
-          if (k != nodeToken)
-            PopupMenuItem(
-                value: (k, null), child: IronTag(k, color: _targetColor(k)))
-          else ...[
-            PopupMenuItem(
-              enabled: false,
-              height: 28,
-              child: Text(
-                  widget.nodes.isEmpty ? '$nodeToken (no nodes)' : nodeToken,
-                  style: context.mono(11.5, color: t.faint)),
-            ),
-            for (final n in widget.nodes)
-              PopupMenuItem(
-                value: (nodeToken, n.id),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Flexible(
-                        child: IronTag(n.name, color: _targetColor(nodeToken))),
-                    if (n.isGroup) ...[
-                      const SizedBox(width: 6),
-                      const IronKindChip('auto', accent: true),
-                    ],
-                  ],
+    return ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 240),
+        child: PopupMenuButton<(String, String?)>(
+          tooltip: 'Change target',
+          onSelected: (v) => setState(() {
+            target.kind = v.$1;
+            target.node = v.$2;
+          }),
+          itemBuilder: (context) => [
+            for (final k in kinds)
+              if (k != nodeToken)
+                PopupMenuItem(
+                    value: (k, null), child: IronTag(k, color: color(k)))
+              else ...[
+                PopupMenuItem(
+                  enabled: false,
+                  height: 28,
+                  child: Text(
+                      widget.nodes.isEmpty
+                          ? '$nodeToken (no nodes)'
+                          : nodeToken,
+                      style: context.mono(11.5, color: t.faint)),
                 ),
-              ),
+                for (final n in widget.nodes)
+                  PopupMenuItem(
+                    value: (nodeToken, n.id),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                            child: IronTag(n.name, color: color(nodeToken))),
+                        if (n.isGroup) ...[
+                          const SizedBox(width: 6),
+                          const IronKindChip('auto', accent: true),
+                        ],
+                      ],
+                    ),
+                  ),
+              ],
           ],
-      ],
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(child: pill),
-          Icon(Icons.arrow_drop_down, size: 18, color: t.dim),
-        ],
-      ),
-    ));
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(child: pill),
+              Icon(Icons.arrow_drop_down, size: 18, color: t.dim),
+            ],
+          ),
+        ));
   }
 
   // No `supported` check here on purpose: an existing condition renders even

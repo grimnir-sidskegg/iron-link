@@ -461,3 +461,42 @@ final class RoutingDraft {
     };
   }
 }
+
+/// A node or auto group a Node target can point at, as the pickers and the
+/// routing diagram see it (from `list_nodes`, in daemon order).
+typedef NodeRef = ({String id, String name, bool isGroup});
+
+/// One destination lane of the routing diagram: a distinct route [target]
+/// (kind + node id), the [node] it resolves to (Node lanes whose id is in the
+/// node list only), the 0-based indices of the [rules] routing there, and
+/// whether it is the config's default target.
+final class RouteLane {
+  RouteLane(this.target, this.node);
+
+  final RouteTarget target;
+  final NodeRef? node;
+  final List<int> rules = [];
+  bool isDefault = false;
+}
+
+/// The diagram lanes of [draft]: one per distinct route target used by a
+/// flat rule or the default target — the default target's lane first, then
+/// first-appearance order. Opaque rules and targets get no lane. No routing
+/// (null) = one default DefaultProxy lane: everything goes via the active
+/// node.
+List<RouteLane> routeLanes(RoutingDraft? draft, List<NodeRef> nodes) {
+  final lanes = <String, RouteLane>{};
+  RouteLane lane(RouteTarget t) => lanes.putIfAbsent(
+      '${t.kind}\u0000${t.node}',
+      () => RouteLane(
+          RouteTarget(t.kind, node: t.node),
+          t.kind == nodeToken
+              ? nodes.where((n) => n.id == t.node).firstOrNull
+              : null));
+  final fallback = draft?.defaultTarget ?? RouteTarget('DefaultProxy');
+  if (fallback is RouteTarget) lane(fallback).isDefault = true;
+  for (final (i, rule) in (draft?.rules ?? const <RuleDraft>[]).indexed) {
+    if (rule case FlatRule(target: final RouteTarget t)) lane(t).rules.add(i);
+  }
+  return [...lanes.values];
+}

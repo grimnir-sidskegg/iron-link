@@ -13,6 +13,7 @@ import 'package:iron_link_flutter/src/app/session.dart';
 import 'package:iron_link_flutter/src/ipc/client.dart';
 import 'package:iron_link_flutter/src/ui/dialogs.dart';
 import 'package:iron_link_flutter/src/ui/home_page.dart';
+import 'package:iron_link_flutter/src/ui/widgets/motion.dart';
 import 'package:iron_link_flutter/src/wire/wire.dart';
 
 class _FakeClient extends DaemonClient {
@@ -519,6 +520,37 @@ void main() {
     client.osakaHang.complete(const [LatencyResult(node: 'Osaka', latencyMs: 7)]);
     await tester.pumpAndSettle();
     expect(find.text('7 ms'), findsOneWidget);
+  });
+
+  testWidgets('the hero pipeline fits the minimum window, threads on the orb',
+      (tester) async {
+    const long = NodeInfo(
+        id: 'n9', name: 'A very long node name that will not fit', active: true);
+    final client = _FakeClient(nodes: [long], running: true)
+      ..liveNode = long.name;
+    final session = DaemonSession(client);
+    session.entries = const [CoreEntry(role: 'tun', state: 'running')];
+    session.activeNodeLive = long.name;
+    addTearDown(session.dispose);
+    tester.view.physicalSize = const Size(600, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+        MaterialApp(home: HomePage(client: client, session: session)));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('You'), findsOneWidget);
+    expect(find.text('Internet'), findsNothing);
+    expect(find.text('ENCRYPTED'), findsNothing);
+    final orbY = tester.getCenter(find.byIcon(Icons.power_settings_new)).dy;
+    final threads = find.byType(PipelineThread);
+    expect(threads, findsNWidgets(2));
+    for (var i = 0; i < 2; i++) {
+      expect(tester.getCenter(threads.at(i)).dy, orbY);
+    }
   });
 }
 
